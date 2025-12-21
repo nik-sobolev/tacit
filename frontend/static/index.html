@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tacit - Your Personal Work Twin</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-content">
+                <h1>🧠 Tacit</h1>
+                <p class="tagline">Your Personal Work Twin</p>
+            </div>
+            <div class="header-actions">
+                <button id="contextsBtn" class="icon-btn" title="Manage Contexts">📝</button>
+                <button id="docsBtn" class="icon-btn" title="Manage Documents">📄</button>
+                <button id="statsBtn" class="icon-btn" title="Statistics">📊</button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Chat Area -->
+            <div class="chat-container">
+                <div id="messages" class="messages"></div>
+                <div class="input-area">
+                    <textarea
+                        id="messageInput"
+                        placeholder="Ask a question, get coached, or query your knowledge..."
+                        rows="2"
+                    ></textarea>
+                    <button id="sendBtn" class="primary-btn">Send</button>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="quick">Quick Capture</button>
+                    <button class="tab-btn" data-tab="upload">Upload</button>
+                </div>
+
+                <!-- Quick Capture Tab -->
+                <div id="quickTab" class="tab-content active">
+                    <h3>Capture Context</h3>
+                    <form id="contextForm">
+                        <select id="contextType" required>
+                            <option value="">Select type...</option>
+                            <option value="decision">Decision</option>
+                            <option value="meeting_note">Meeting Note</option>
+                            <option value="project_context">Project Context</option>
+                            <option value="strategy">Strategy</option>
+                            <option value="insight">Insight</option>
+                            <option value="plan">Plan</option>
+                        </select>
+
+                        <input
+                            type="text"
+                            id="contextTitle"
+                            placeholder="Title"
+                            required
+                        />
+
+                        <textarea
+                            id="contextContent"
+                            placeholder="What did you decide? What's the context? What's your thinking?"
+                            rows="8"
+                            required
+                        ></textarea>
+
+                        <input
+                            type="text"
+                            id="contextTags"
+                            placeholder="Tags (comma-separated)"
+                        />
+
+                        <button type="submit" class="primary-btn">Save Context</button>
+                    </form>
+                </div>
+
+                <!-- Upload Tab -->
+                <div id="uploadTab" class="tab-content">
+                    <h3>Upload Document</h3>
+                    <div class="upload-area">
+                        <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.md" hidden />
+                        <button id="selectFileBtn" class="secondary-btn">Select File</button>
+                        <p id="fileName" class="file-name"></p>
+                        <button id="uploadBtn" class="primary-btn" disabled>Upload</button>
+                    </div>
+                    <p class="help-text">Supported: PDF, DOCX, TXT, MD (max 50MB)</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modals -->
+        <div id="statsModal" class="modal">
+            <div class="modal-content">
+                <span class="close" data-modal="statsModal">&times;</span>
+                <h2>Knowledge Base Stats</h2>
+                <div id="statsContent"></div>
+            </div>
+        </div>
+
+        <div id="contextsModal" class="modal">
+            <div class="modal-content large">
+                <span class="close" data-modal="contextsModal">&times;</span>
+                <h2>📝 Manage Contexts</h2>
+                <div id="contextsContent" class="contexts-list"></div>
+            </div>
+        </div>
+
+        <div id="docsModal" class="modal">
+            <div class="modal-content large">
+                <span class="close" data-modal="docsModal">&times;</span>
+                <h2>📄 Document Library</h2>
+                <div id="docsContent" class="docs-list"></div>
+            </div>
+        </div>
+
+        <div id="editContextModal" class="modal">
+            <div class="modal-content">
+                <span class="close" data-modal="editContextModal">&times;</span>
+                <h2>Edit Context</h2>
+                <form id="editContextForm">
+                    <input type="hidden" id="editContextId" />
+                    <select id="editContextType" required>
+                        <option value="decision">Decision</option>
+                        <option value="meeting_note">Meeting Note</option>
+                        <option value="project_context">Project Context</option>
+                        <option value="strategy">Strategy</option>
+                        <option value="insight">Insight</option>
+                        <option value="plan">Plan</option>
+                    </select>
+                    <input type="text" id="editContextTitle" placeholder="Title" required />
+                    <textarea id="editContextContent" placeholder="Content" rows="8" required></textarea>
+                    <input type="text" id="editContextTags" placeholder="Tags (comma-separated)" />
+                    <div class="form-actions">
+                        <button type="button" class="secondary-btn" onclick="closeModal('editContextModal')">Cancel</button>
+                        <button type="submit" class="primary-btn">Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Markdown parsing library -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <script src="/static/app.js"></script>
+</body>
+</html>
