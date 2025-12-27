@@ -178,26 +178,25 @@ body {
 .message-bubble h1,
 .message-bubble h2,
 .message-bubble h3 {
-    margin-top: 2rem;
-    margin-bottom: 1rem;
-    font-weight: 700;
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
     line-height: 1.3;
-    color: var(--text);
 }
 
 .message-bubble h1:first-child,
 .message-bubble h2:first-child,
 .message-bubble h3:first-child {
-    margin-top: 0.5rem;
+    margin-top: 0;
 }
 
-.message-bubble h1 { font-size: 1.375rem; }
-.message-bubble h2 { font-size: 1.25rem; }
-.message-bubble h3 { font-size: 1.125rem; }
+.message-bubble h1 { font-size: 1.125rem; }
+.message-bubble h2 { font-size: 1.0625rem; }
+.message-bubble h3 { font-size: 1rem; }
 
 .message-bubble p {
-    margin: 1rem 0;
-    line-height: 1.7;
+    margin: 0.5rem 0;
+    line-height: 1.5;
 }
 
 .message-bubble p:first-child {
@@ -210,31 +209,17 @@ body {
 
 .message-bubble ul,
 .message-bubble ol {
-    margin: 1.25rem 0;
-    padding-left: 2rem;
-    line-height: 1.8;
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
 }
 
 .message-bubble li {
-    margin: 1rem 0;
-    padding-left: 0.25rem;
+    margin: 0.35rem 0;
+    line-height: 1.5;
 }
 
 .message-bubble li p {
-    margin: 0.5rem 0;
-}
-
-/* Add MORE spacing between list items */
-.message-bubble li + li {
-    margin-top: 1rem;
-}
-
-/* Make nested lists less cramped */
-.message-bubble ul ul,
-.message-bubble ol ol,
-.message-bubble ul ol,
-.message-bubble ol ul {
-    margin: 0.75rem 0;
+    margin: 0.25rem 0;
 }
 
 .message-bubble code {
