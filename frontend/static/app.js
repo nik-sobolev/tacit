@@ -124,7 +124,6 @@ function addLoadingMessage() {
 
     const avatar = document.createElement('div');
     avatar.className = 'message-avatar';
-    avatar.textContent = '🧠';
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
@@ -152,7 +151,6 @@ function addErrorMessageWithRetry(errorText, originalMessage) {
 
     const avatar = document.createElement('div');
     avatar.className = 'message-avatar';
-    avatar.textContent = '🧠';
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
@@ -188,7 +186,7 @@ function addMessage(role, content, isLoading = false, sources = []) {
 
     const avatar = document.createElement('div');
     avatar.className = 'message-avatar';
-    avatar.textContent = role === 'user' ? '👤' : '🧠';
+    if (role === 'user') avatar.textContent = '👤';
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
