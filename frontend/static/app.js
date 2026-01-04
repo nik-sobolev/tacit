@@ -477,17 +477,21 @@ async function showContexts() {
                 : '';
 
             return `
-                <div class="context-item">
+                <div class="context-card">
                     <div class="context-header">
-                        <div class="context-type-badge type-${ctx.type}">${typeLabel}</div>
-                        <div class="context-date">${date}</div>
+                        <div>
+                            <div class="context-type">${typeLabel}</div>
+                            <div class="context-title">${ctx.title}</div>
+                        </div>
+                        <div class="context-actions">
+                            <button class="edit-btn" onclick="editContext('${ctx.id}')">Edit</button>
+                            <button class="delete-btn" onclick="deleteContext('${ctx.id}', '${ctx.title.replace(/'/g, "\\'")}')">Delete</button>
+                        </div>
                     </div>
-                    <h3 class="context-title">${ctx.title}</h3>
-                    <p class="context-preview">${preview}</p>
-                    ${tags ? `<div class="context-tags">${tags}</div>` : ''}
-                    <div class="context-actions">
-                        <button class="btn-small" onclick="editContext('${ctx.id}')">Edit</button>
-                        <button class="btn-small btn-danger" onclick="deleteContext('${ctx.id}', '${ctx.title.replace(/'/g, "\\'")}')">Delete</button>
+                    <div class="context-content">${preview}</div>
+                    <div class="context-footer">
+                        ${tags ? `<div class="context-tags">${tags}</div>` : '<div></div>'}
+                        <div class="context-date">${date}</div>
                     </div>
                 </div>
             `;
@@ -616,19 +620,24 @@ async function showDocuments() {
             const typeIcon = getDocumentIcon(doc.type);
 
             return `
-                <div class="document-item">
-                    <div class="document-icon">${typeIcon}</div>
-                    <div class="document-info">
-                        <h3 class="document-title">${doc.original_filename}</h3>
-                        <div class="document-meta">
+                <div class="doc-card">
+                    <div class="doc-header">
+                        <div>
+                            <div class="doc-icon">${typeIcon}</div>
+                            <div class="doc-title">${doc.original_filename}</div>
+                            <div class="doc-type">${doc.type.toUpperCase()}</div>
+                        </div>
+                        <div class="doc-actions">
+                            <button class="delete-btn" onclick="deleteDocument('${doc.id}', '${doc.original_filename.replace(/'/g, "\\'")}')">Delete</button>
+                        </div>
+                    </div>
+                    <div class="doc-footer">
+                        <div class="doc-meta">
                             <span>📅 ${date}</span>
                             <span>💾 ${sizeMB} MB</span>
                             ${doc.page_count ? `<span>📄 ${doc.page_count} pages</span>` : ''}
                             ${doc.word_count ? `<span>📝 ${doc.word_count.toLocaleString()} words</span>` : ''}
                         </div>
-                    </div>
-                    <div class="document-actions">
-                        <button class="btn-small btn-danger" onclick="deleteDocument('${doc.id}', '${doc.original_filename.replace(/'/g, "\\'")}')">Delete</button>
                     </div>
                 </div>
             `;
