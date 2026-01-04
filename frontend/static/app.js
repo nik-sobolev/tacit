@@ -484,8 +484,8 @@ async function showContexts() {
                             <div class="context-title">${ctx.title}</div>
                         </div>
                         <div class="context-actions">
-                            <button class="edit-btn" onclick="editContext('${ctx.id}')">Edit</button>
-                            <button class="delete-btn" onclick="deleteContext('${ctx.id}', '${ctx.title.replace(/'/g, "\\'")}')">Delete</button>
+                            <button class="edit-btn" data-ctx-id="${ctx.id}">Edit</button>
+                            <button class="delete-btn" data-ctx-id="${ctx.id}" data-ctx-title="${ctx.title}">Delete</button>
                         </div>
                     </div>
                     <div class="context-content">${preview}</div>
@@ -498,6 +498,21 @@ async function showContexts() {
         }).join('');
 
         content.innerHTML = html;
+
+        // Add event listeners to buttons
+        content.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                editContext(btn.getAttribute('data-ctx-id'));
+            });
+        });
+
+        content.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const ctxId = btn.getAttribute('data-ctx-id');
+                const ctxTitle = btn.getAttribute('data-ctx-title');
+                deleteContext(ctxId, ctxTitle);
+            });
+        });
 
     } catch (error) {
         content.innerHTML = '<div class="error-message">Failed to load contexts</div>';
@@ -574,24 +589,34 @@ async function updateContext(e) {
 }
 
 async function deleteContext(contextId, contextTitle) {
+    console.log('Delete context called for:', contextId, contextTitle);
+
     if (!confirm(`Are you sure you want to delete "${contextTitle}"? This cannot be undone.`)) {
+        console.log('Delete cancelled by user');
         return;
     }
+
+    console.log('Sending DELETE request to:', `${API_BASE}/context/${contextId}`);
 
     try {
         const response = await fetch(`${API_BASE}/context/${contextId}`, {
             method: 'DELETE'
         });
 
+        console.log('Delete response status:', response.status);
+        const data = await response.json();
+        console.log('Delete response data:', data);
+
         if (response.ok) {
-            showSuccess('Context deleted successfully');
+            alert('Context deleted successfully');
             showContexts(); // Refresh the list
         } else {
+            alert('Failed to delete context: ' + (data.detail || 'Unknown error'));
             throw new Error('Failed to delete context');
         }
 
     } catch (error) {
-        showError('Failed to delete context. Please try again.');
+        alert('Error deleting context: ' + error.message);
         console.error('Delete context error:', error);
     }
 }
@@ -628,7 +653,7 @@ async function showDocuments() {
                             <div class="doc-type">${doc.type.toUpperCase()}</div>
                         </div>
                         <div class="doc-actions">
-                            <button class="delete-btn" onclick="deleteDocument('${doc.id}', '${doc.original_filename.replace(/'/g, "\\'")}')">Delete</button>
+                            <button class="delete-btn" data-doc-id="${doc.id}" data-doc-name="${doc.original_filename}">Delete</button>
                         </div>
                     </div>
                     <div class="doc-footer">
@@ -645,6 +670,15 @@ async function showDocuments() {
 
         content.innerHTML = html;
 
+        // Add event listeners to delete buttons
+        content.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const docId = btn.getAttribute('data-doc-id');
+                const docName = btn.getAttribute('data-doc-name');
+                deleteDocument(docId, docName);
+            });
+        });
+
     } catch (error) {
         content.innerHTML = '<div class="error-message">Failed to load documents</div>';
         console.error('Document loading error:', error);
@@ -652,24 +686,34 @@ async function showDocuments() {
 }
 
 async function deleteDocument(documentId, filename) {
+    console.log('Delete called for:', documentId, filename);
+
     if (!confirm(`Are you sure you want to delete "${filename}"? This cannot be undone.`)) {
+        console.log('Delete cancelled by user');
         return;
     }
+
+    console.log('Sending DELETE request to:', `${API_BASE}/documents/${documentId}`);
 
     try {
         const response = await fetch(`${API_BASE}/documents/${documentId}`, {
             method: 'DELETE'
         });
 
+        console.log('Delete response status:', response.status);
+        const data = await response.json();
+        console.log('Delete response data:', data);
+
         if (response.ok) {
-            showSuccess('Document deleted successfully');
+            alert('Document deleted successfully');
             showDocuments(); // Refresh the list
         } else {
+            alert('Failed to delete document: ' + (data.detail || 'Unknown error'));
             throw new Error('Failed to delete document');
         }
 
     } catch (error) {
-        showError('Failed to delete document. Please try again.');
+        alert('Error deleting document: ' + error.message);
         console.error('Delete document error:', error);
     }
 }
