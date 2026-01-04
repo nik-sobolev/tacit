@@ -83,7 +83,7 @@ async def upload_document(
             upload_date=datetime.utcnow(),
             tags=[],
             description=None,
-            metadata={'file_path': str(saved_path)}
+            extra_metadata={'file_path': str(saved_path)}
         )
         session.add(db_document)
         session.commit()
@@ -200,9 +200,11 @@ async def delete_document(request: Request, document_id: str):
         engine.vector_service.delete_document_chunks(document_id)
 
         # Delete file from disk
-        file_path = Path(db_document.extra_metadata.get('file_path', ''))
-        if file_path.exists():
-            doc_processor.delete_file(file_path)
+        file_path_str = db_document.extra_metadata.get('file_path')
+        if file_path_str:
+            file_path = Path(file_path_str)
+            if file_path.exists() and file_path.is_file():
+                doc_processor.delete_file(file_path)
 
         # Delete from SQLite
         session.delete(db_document)
