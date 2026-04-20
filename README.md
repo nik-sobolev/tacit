@@ -46,19 +46,6 @@ Drop any URL — YouTube, TikTok, Instagram, articles, or any webpage — and Ta
 - **Always-on recall** — relevant person context injected into every chat response that mentions them
 - **People view** — browse all remembered contacts, see their details, delete any entry
 
-### Documents
-
-- **Upload files** — PDF, DOCX, TXT, Markdown, PPTX (up to 50 MB)
-- **Chunked embedding** — documents split into overlapping chunks, each embedded separately for precise retrieval
-- **Semantic search** — document chunks surface alongside canvas nodes in chat responses
-- **Document library** — list, filter, and delete uploaded documents; stats show total size and word count
-
-### Contexts
-
-- **Manual knowledge** — add notes directly without a URL: decisions, meeting notes, project context, strategy, insights, plans
-- **Full CRUD** — create, read, update, delete contexts via API
-- **Searchable** — contexts embedded and retrieved alongside nodes and documents in chat
-
 ### Infrastructure
 
 - **Semantic search** — ChromaDB with cosine similarity across three collections (nodes, documents, contexts)
@@ -164,10 +151,6 @@ The backend exposes a REST API at `http://localhost:8000/api`:
 | `DELETE` | `/people/{id}` | Delete a person from memory |
 | `GET` | `/categories` | Node categories with counts |
 | `GET` | `/insights` | Canvas stats and insights |
-| `POST` | `/documents/upload` | Upload a file (PDF, DOCX, TXT, MD) |
-| `GET` | `/documents` | List uploaded documents |
-| `POST` | `/context` | Create a manual context entry |
-| `GET` | `/context` | List context entries |
 | `PUT` | `/nodes/{id}` | Update node title or position |
 | `DELETE` | `/nodes/{id}` | Delete a node and its edges |
 | `POST` | `/nodes/{id}/link/{target}` | Create a manual edge |
