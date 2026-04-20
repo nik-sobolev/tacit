@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tacit — Personal Second Brain</title>
+  <meta name="description" content="Drop any URL. Chat with everything you've saved. Tacit captures what you read, remembers who you know, and lets you search the web — all in one place." />
+  <meta property="og:title" content="Tacit — Personal Second Brain" />
+  <meta property="og:description" content="Drop any URL. Chat with everything you've saved." />
+  <meta property="og:type" content="website" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #0f0f0f;
+      --surface:      #1a1a1a;
+      --surface2:     #222222;
+      --border:       #2e2e2e;
+      --text:         #e8e8e8;
+      --muted:        #888;
+      --primary:      #c0612a;
+      --primary-light:#d87743;
+      --accent:       #f0a060;
+      --code-bg:      #161616;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Nav ── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem; height: 56px;
+      background: rgba(15,15,15,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo {
+      font-size: 1.1rem; font-weight: 700; letter-spacing: 0.04em;
+      color: var(--text); text-decoration: none;
+    }
+    .nav-logo span { color: var(--primary-light); }
+    nav a.btn-nav {
+      font-size: 0.85rem; font-weight: 500;
+      padding: 0.4rem 1rem; border-radius: 6px;
+      background: var(--primary); color: #fff;
+      text-decoration: none; transition: background 0.15s;
+    }
+    nav a.btn-nav:hover { background: var(--primary-light); }
+
+    /* ── Hero ── */
+    .hero {
+      max-width: 860px; margin: 0 auto;
+      padding: 7rem 2rem 5rem;
+      text-align: center;
+    }
+    .hero-badge {
+      display: inline-block;
+      font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid rgba(192,97,42,0.4);
+      border-radius: 20px; padding: 0.25rem 0.85rem; margin-bottom: 1.75rem;
+      background: rgba(192,97,42,0.07);
+    }
+    h1 {
+      font-size: clamp(2.4rem, 5vw, 3.6rem);
+      font-weight: 800; line-height: 1.1; letter-spacing: -0.03em;
+      margin-bottom: 1.25rem;
+    }
+    h1 em { font-style: normal; color: var(--primary-light); }
+    .hero p {
+      font-size: 1.15rem; color: var(--muted);
+      max-width: 600px; margin: 0 auto 2.5rem;
+    }
+    .hero-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.7rem 1.5rem; border-radius: 8px;
+      font-size: 0.95rem; font-weight: 600; text-decoration: none;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-light); }
+    .btn-secondary {
+      background: var(--surface2); color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: #2a2a2a; }
+
+    /* ── Canvas preview ── */
+    .preview-wrap {
+      max-width: 980px; margin: 3rem auto 0;
+      padding: 0 2rem;
+    }
+    .preview-frame {
+      border-radius: 14px; overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 32px 80px rgba(0,0,0,0.6);
+      background: var(--surface);
+    }
+    .preview-bar {
+      display: flex; align-items: center; gap: 6px;
+      padding: 10px 14px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+    }
+    .dot { width: 11px; height: 11px; border-radius: 50%; }
+    .dot.r { background: #ff5f57; }
+    .dot.y { background: #febc2e; }
+    .dot.g { background: #28c840; }
+    .preview-canvas {
+      position: relative; height: 360px;
+      background: radial-gradient(ellipse at 40% 50%, rgba(192,97,42,0.04) 0%, transparent 70%), var(--bg);
+      overflow: hidden;
+    }
+
+    /* Fake canvas cards */
+    .fc {
+      position: absolute; width: 180px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 14px;
+      font-size: 0.72rem; box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    }
+    .fc-type { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--accent); margin-bottom: 5px; }
+    .fc-title { font-weight: 600; font-size: 0.78rem; color: var(--text); margin-bottom: 4px; line-height: 1.3; }
+    .fc-summary { color: var(--muted); font-size: 0.68rem; line-height: 1.4; }
+    .fc-tag {
+      display: inline-block; margin-top: 7px;
+      font-size: 0.6rem; padding: 2px 6px; border-radius: 4px;
+      background: rgba(192,97,42,0.15); color: var(--accent);
+    }
+    /* edges */
+    .canvas-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+    /* ── Section layout ── */
+    section { padding: 5rem 2rem; }
+    .container { max-width: 1040px; margin: 0 auto; }
+    h2 {
+      font-size: clamp(1.6rem, 3vw, 2.2rem);
+      font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.6rem;
+    }
+    .section-sub { color: var(--muted); font-size: 1rem; margin-bottom: 3rem; }
+
+    /* ── Features grid ── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.25rem;
+    }
+    .feature-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 1.5rem;
+      transition: border-color 0.2s;
+    }
+    .feature-card:hover { border-color: rgba(192,97,42,0.4); }
+    .feature-icon {
+      font-size: 1.5rem; margin-bottom: 0.85rem;
+      display: inline-block;
+    }
+    .feature-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.4rem; }
+    .feature-card p { font-size: 0.875rem; color: var(--muted); line-height: 1.55; }
+
+    /* ── How it works ── */
+    .steps { display: flex; flex-direction: column; gap: 0; max-width: 640px; }
+    .step { display: flex; gap: 1.25rem; padding: 1.5rem 0; position: relative; }
+    .step:not(:last-child)::after {
+      content: "";
+      position: absolute; left: 19px; top: 3.5rem; bottom: 0;
+      width: 2px; background: var(--border);
+    }
+    .step-num {
+      flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%;
+      background: rgba(192,97,42,0.15); border: 1px solid rgba(192,97,42,0.3);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 0.85rem; color: var(--accent);
+    }
+    .step h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.3rem; }
+    .step p { font-size: 0.85rem; color: var(--muted); }
+
+    /* ── Stack ── */
+    .stack-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 1rem;
+    }
+    .stack-item {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 1rem 1.25rem;
+    }
+    .stack-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-bottom: 0.3rem; }
+    .stack-val { font-size: 0.9rem; font-weight: 600; }
+
+    /* ── Install ── */
+    .install-box {
+      background: var(--code-bg); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden;
+      max-width: 640px;
+    }
+    .install-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.7rem 1rem; border-bottom: 1px solid var(--border);
+    }
+    .install-header span { font-size: 0.75rem; color: var(--muted); }
+    pre {
+      padding: 1.25rem 1.25rem; margin: 0;
+      font-size: 0.83rem; line-height: 1.8;
+      color: #c9d1d9; font-family: "SF Mono", "Fira Code", Consolas, monospace;
+      overflow-x: auto;
+    }
+    pre .c { color: #6a737d; }
+    pre .k { color: var(--primary-light); }
+    pre .s { color: #9ecbff; }
+
+    /* ── CTA ── */
+    .cta-section {
+      text-align: center; padding: 6rem 2rem;
+      background: radial-gradient(ellipse at 50% 0%, rgba(192,97,42,0.08) 0%, transparent 65%);
+      border-top: 1px solid var(--border);
+    }
+    .cta-section h2 { font-size: clamp(1.8rem, 4vw, 2.6rem); margin-bottom: 1rem; }
+    .cta-section p { color: var(--muted); margin-bottom: 2rem; font-size: 1rem; }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2rem; text-align: center;
+      font-size: 0.8rem; color: var(--muted);
+    }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--accent); }
+
+    /* ── Divider ── */
+    .divider { border: none; border-top: 1px solid var(--border); margin: 0; }
+
+    @media (max-width: 600px) {
+      .hero { padding: 4rem 1.25rem 3rem; }
+      nav { padding: 0 1.25rem; }
+      section { padding: 3.5rem 1.25rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <a class="nav-logo" href="#"><span>T</span>acit</a>
+  <a class="btn-nav" href="https://github.com/nik-sobolev/tacit" target="_blank" rel="noopener">View on GitHub →</a>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-badge">Self-hosted · Open source · MIT</div>
+  <h1>Your personal<br><em>second brain</em></h1>
+  <p>Drop any URL. Ask anything. Tacit captures what you read, remembers who you know, and searches the web — all in one canvas.</p>
+  <div class="hero-actions">
+    <a class="btn btn-primary" href="https://github.com/nik-sobolev/tacit#quick-start" target="_blank" rel="noopener">
+      Get started free
+    </a>
+    <a class="btn btn-secondary" href="https://github.com/nik-sobolev/tacit" target="_blank" rel="noopener">
+      GitHub ↗
+    </a>
+  </div>
+</section>
+
+<!-- Canvas preview -->
+<div class="preview-wrap">
+  <div class="preview-frame">
+    <div class="preview-bar">
+      <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+    </div>
+    <div class="preview-canvas">
+      <!-- Fake edges -->
+      <svg class="canvas-svg" xmlns="http://www.w3.org/2000/svg">
+        <line x1="230" y1="130" x2="380" y2="190" stroke="#2e2e2e" stroke-width="1.5"/>
+        <line x1="380" y1="190" x2="560" y2="130" stroke="#2e2e2e" stroke-width="1.5"/>
+        <line x1="380" y1="190" x2="380" y2="290" stroke="#c0612a" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.5"/>
+        <line x1="560" y1="130" x2="700" y2="220" stroke="#2e2e2e" stroke-width="1.5"/>
+      </svg>
+
+      <!-- Cards -->
+      <div class="fc" style="left:40px; top:70px;">
+        <div class="fc-type">YouTube</div>
+        <div class="fc-title">The Attention Mechanism Explained</div>
+        <div class="fc-summary">How transformers attend to relevant tokens during inference.</div>
+        <div class="fc-tag">AI</div>
+      </div>
+
+      <div class="fc" style="left:295px; top:155px; border-color: rgba(192,97,42,0.5);">
+        <div class="fc-type">Article</div>
+        <div class="fc-title">Building a Second Brain</div>
+        <div class="fc-summary">Tiago Forte's PARA method for organising digital knowledge.</div>
+        <div class="fc-tag">Productivity</div>
+      </div>
+
+      <div class="fc" style="left:510px; top:70px;">
+        <div class="fc-type">TikTok</div>
+        <div class="fc-title">Why You Forget Everything You Read</div>
+        <div class="fc-summary">The retention problem — and why active recall beats re-reading.</div>
+        <div class="fc-tag">Learning</div>
+      </div>
+
+      <div class="fc" style="left:295px; top:275px; opacity: 0.7;">
+        <div class="fc-type" style="color:#6a737d;">Processing…</div>
+        <div class="fc-title" style="color:#666;">New article added</div>
+        <div class="fc-summary">Extracting content and generating summary.</div>
+      </div>
+
+      <div class="fc" style="left:660px; top:195px;">
+        <div class="fc-type">Webpage</div>
+        <div class="fc-title">Zettelkasten Note-Taking Method</div>
+        <div class="fc-summary">Niklas Luhmann's linked-note system and its modern digital forms.</div>
+        <div class="fc-tag">Knowledge</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Features -->
+<section>
+  <div class="container">
+    <h2>Everything in one place</h2>
+    <p class="section-sub">Capture, connect, and converse with your knowledge — without leaving the canvas.</p>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">🎬</div>
+        <h3>Any URL, instantly</h3>
+        <p>YouTube (with transcripts), TikTok, Instagram, articles, and any webpage. Drop a link and Tacit extracts, summarises, and tags it automatically.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🕸️</div>
+        <h3>Visual knowledge canvas</h3>
+        <p>Pan, zoom, and drag nodes. Semantic connections are drawn automatically between related content — so you see how ideas link.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">💬</div>
+        <h3>Chat with your canvas</h3>
+        <p>Ask anything in natural language. Tacit searches your knowledge base with vector embeddings and synthesises an answer using Claude Sonnet.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔍</div>
+        <h3>Real-time web search</h3>
+        <p>When your canvas doesn't have the answer, Tacit searches the web via Claude Haiku — no extra API keys or setup required.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">👥</div>
+        <h3>People memory</h3>
+        <p>Mention someone in chat and Tacit remembers their role, organisation, action items, and notes — surfaced automatically in future conversations.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>Fully self-hosted</h3>
+        <p>One <code>docker compose up</code> command. Your data lives on your machine. No accounts, no cloud sync, no vendor lock-in.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- How it works -->
+<section>
+  <div class="container">
+    <h2>How it works</h2>
+    <p class="section-sub">Three steps from URL to insight.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div>
+          <h3>Drop a URL</h3>
+          <p>Paste any link — YouTube video, article, tweet, or webpage. Tacit fetches the content (using Playwright for JS-heavy pages), transcribes audio, summarises with Claude, and places it on your canvas.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div>
+          <h3>Canvas organises itself</h3>
+          <p>Semantic embeddings via ChromaDB connect related nodes automatically. Categories are inferred, duplicates are detected, and the canvas grows with your knowledge.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div>
+          <h3>Ask anything</h3>
+          <p>Chat with your entire canvas. Tacit retrieves relevant nodes, injects them as context, and generates a grounded answer. If the answer isn't on canvas, it searches the web.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- Stack -->
+<section>
+  <div class="container">
+    <h2>Built on solid foundations</h2>
+    <p class="section-sub">No surprise dependencies. Everything runs locally.</p>
+    <div class="stack-grid">
+      <div class="stack-item">
+        <div class="stack-label">Backend</div>
+        <div class="stack-val">FastAPI + SQLite</div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-label">Vector search</div>
+        <div class="stack-val">ChromaDB (local)</div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-label">Conversation AI</div>
+        <div class="stack-val">Claude Sonnet 4.6</div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-label">Web search AI</div>
+        <div class="stack-val">Claude Haiku 4.5</div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-label">Frontend</div>
+        <div class="stack-val">Vanilla HTML/JS</div>
+      </div>
+      <div class="stack-item">
+        <div class="stack-label">Deployment</div>
+        <div class="stack-val">Docker Compose</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- Install -->
+<section>
+  <div class="container">
+    <h2>Up and running in minutes</h2>
+    <p class="section-sub">You only need Docker Desktop and an Anthropic API key.</p>
+    <div class="install-box">
+      <div class="install-header">
+        <span>terminal</span>
+      </div>
+      <pre><span class="c"># Clone the repo</span>
+git clone https://github.com/nik-sobolev/tacit
+cd tacit
+
+<span class="c"># Configure your key</span>
+cp .env.example .env
+<span class="c"># Edit .env — set ANTHROPIC_API_KEY, USER_NAME, USER_ROLE</span>
+
+<span class="c"># Start</span>
+docker compose up</pre>
+    </div>
+    <p style="margin-top:1rem; font-size:0.85rem; color:var(--muted);">Then open <strong style="color:var(--text);">http://localhost:8000</strong>. Data persists in <code>./data/</code> across restarts.</p>
+  </div>
+</section>
+
+<!-- CTA -->
+<div class="cta-section">
+  <div class="container">
+    <h2>Start building your second brain</h2>
+    <p>Free, open source, and runs entirely on your machine.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="https://github.com/nik-sobolev/tacit#quick-start" target="_blank" rel="noopener">
+        Get started →
+      </a>
+      <a class="btn btn-secondary" href="https://github.com/nik-sobolev/tacit/issues" target="_blank" rel="noopener">
+        Report an issue
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>
+    <a href="https://github.com/nik-sobolev/tacit" target="_blank" rel="noopener">GitHub</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/nik-sobolev/tacit/blob/main/README.md" target="_blank" rel="noopener">Docs</a>
+    &nbsp;·&nbsp;
+    MIT License
+  </p>
+  <p style="margin-top:0.5rem;">Built with Claude · Tacit</p>
+</footer>
+
+</body>
+</html>
