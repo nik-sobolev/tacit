@@ -1,7 +1,7 @@
 """Chat data models for Tacit"""
 
 from datetime import datetime
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Dict, Any
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -38,6 +38,7 @@ class ChatResponse(BaseModel):
     mode: ChatMode
     sources: List[dict] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
+    actions: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class ChatSession(BaseModel):

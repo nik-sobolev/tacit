@@ -1,9 +1,9 @@
 """Vector database service using ChromaDB"""
 
+import os
 import structlog
 from typing import List, Dict, Any, Optional
 import chromadb
-from chromadb.config import Settings
 from chromadb.utils import embedding_functions
 
 logger = structlog.get_logger()
@@ -15,10 +15,10 @@ class VectorService:
     def __init__(self, persist_directory: str = "./data/chroma"):
         """Initialize ChromaDB client"""
 
-        self.client = chromadb.Client(Settings(
-            persist_directory=persist_directory,
-            anonymized_telemetry=False
-        ))
+        # Resolve to absolute path so it persists regardless of cwd
+        abs_dir = os.path.abspath(persist_directory)
+        os.makedirs(abs_dir, exist_ok=True)
+        self.client = chromadb.PersistentClient(path=abs_dir)
 
         # Use default embedding function (faster startup, no extra dependencies)
         self.embedding_function = embedding_functions.DefaultEmbeddingFunction()
@@ -26,6 +26,7 @@ class VectorService:
         # Initialize collections
         self.contexts_collection = self._get_or_create_collection("contexts")
         self.documents_collection = self._get_or_create_collection("documents")
+        self.nodes_collection = self._get_or_create_collection("nodes")
 
         logger.info("vector_service_initialized", persist_directory=persist_directory)
 
@@ -196,18 +197,66 @@ class VectorService:
             logger.error("document_chunks_delete_error", document_id=document_id, error=str(e))
             raise
 
+    # ==================== NODE OPERATIONS ====================
+
+    def add_node(self, node_id: str, content: str, metadata: Dict[str, Any]) -> None:
+        """Add or update a canvas node in the vector database"""
+        try:
+            self.nodes_collection.upsert(
+                ids=[node_id],
+                documents=[content[:8000]],  # cap at 8k chars
+                metadatas=[metadata]
+            )
+            logger.debug("node_upserted_to_vector_db", node_id=node_id)
+        except Exception as e:
+            logger.error("node_add_error", node_id=node_id, error=str(e))
+            raise
+
+    def search_nodes(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Search canvas nodes semantically"""
+        try:
+            count = self.nodes_collection.count()
+            if count == 0:
+                return []
+            results = self.nodes_collection.query(
+                query_texts=[query],
+                n_results=min(limit, count)
+            )
+            formatted = []
+            if results and results['ids'] and len(results['ids'][0]) > 0:
+                for i in range(len(results['ids'][0])):
+                    formatted.append({
+                        'id': results['ids'][0][i],
+                        'content': results['documents'][0][i],
+                        'metadata': results['metadatas'][0][i],
+                        'relevance_score': 1 - results['distances'][0][i] if 'distances' in results else 1.0
+                    })
+            return formatted
+        except Exception as e:
+            logger.error("node_search_error", error=str(e))
+            return []
+
+    def delete_node(self, node_id: str) -> None:
+        """Delete a node from vector database"""
+        try:
+            self.nodes_collection.delete(ids=[node_id])
+        except Exception as e:
+            logger.error("node_delete_error", node_id=node_id, error=str(e))
+
     # ==================== HYBRID SEARCH ====================
 
     def search_all(
         self,
         query: str,
         context_limit: int = 5,
-        document_limit: int = 3
+        document_limit: int = 3,
+        node_limit: int = 5
     ) -> Dict[str, List[Dict[str, Any]]]:
-        """Search both contexts and documents"""
+        """Search contexts, documents, and graph nodes"""
         return {
             'contexts': self.search_contexts(query, limit=context_limit),
-            'documents': self.search_documents(query, limit=document_limit)
+            'documents': self.search_documents(query, limit=document_limit),
+            'nodes': self.search_nodes(query, limit=node_limit)
         }
 
     # ==================== STATS & MANAGEMENT ====================
@@ -218,10 +267,12 @@ class VectorService:
             context_count = self.contexts_collection.count()
             document_count = self.documents_collection.count()
 
+            node_count = self.nodes_collection.count()
             return {
                 'contexts_count': context_count,
                 'document_chunks_count': document_count,
-                'total_items': context_count + document_count
+                'nodes_count': node_count,
+                'total_items': context_count + document_count + node_count
             }
         except Exception as e:
             logger.error("stats_retrieval_error", error=str(e))

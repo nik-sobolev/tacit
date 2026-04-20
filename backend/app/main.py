@@ -9,8 +9,11 @@ from pathlib import Path
 import os
 
 from .api import chat, context, documents
+from .api import ingest, graph as graph_api
 from .core.config import TacitConfig
 from .core.engine import TacitEngine
+from .services.ingestion_service import IngestionService
+from .services.graph_service import GraphService
 
 # Configure logging
 structlog.configure(
@@ -42,15 +45,26 @@ app.add_middleware(
 # Initialize global instances
 config = TacitConfig.load()
 engine = TacitEngine(config)
+ingestion_service = IngestionService()
+graph_service = GraphService(
+    vector_service=engine.vector_service,
+    client=engine.client,
+    model=config.default_model,
+)
+engine.graph_service = graph_service
 
-# Make engine available to routes
+# Make services available to routes
 app.state.engine = engine
 app.state.config = config
+app.state.ingestion_service = ingestion_service
+app.state.graph_service = graph_service
 
 # Include API routers
 app.include_router(chat.router, prefix="/api", tags=["chat"])
 app.include_router(context.router, prefix="/api", tags=["context"])
 app.include_router(documents.router, prefix="/api", tags=["documents"])
+app.include_router(ingest.router, prefix="/api", tags=["ingest"])
+app.include_router(graph_api.router, prefix="/api", tags=["graph"])
 
 # Serve frontend
 frontend_path = Path(__file__).parent.parent.parent / "frontend" / "static"
@@ -124,6 +138,81 @@ async def startup_event():
     # Ensure data directories exist
     os.makedirs("./data/uploads", exist_ok=True)
     os.makedirs("./data/chroma", exist_ok=True)
+
+    # Mark any nodes stuck in "processing" from a previous run as errors
+    _recover_stuck_nodes()
+
+    # Re-index any processed nodes that are missing from ChromaDB
+    _reindex_missing_nodes()
+
+
+def _recover_stuck_nodes():
+    """Mark any nodes left in processing/pending state from a previous run as errors."""
+    from .db.database import NodeDB, get_database
+    db = get_database()
+    session = db.get_session()
+    try:
+        stuck = session.query(NodeDB).filter(NodeDB.status.in_(["processing", "pending"])).all()
+        if stuck:
+            for node in stuck:
+                node.status = "error"
+                node.error_message = "Processing interrupted by server restart"
+            session.commit()
+            logger.info("recovered_stuck_nodes", count=len(stuck))
+    finally:
+        session.close()
+
+
+def _reindex_missing_nodes():
+    """Index nodes that are in SQLite (status=done) but missing from ChromaDB."""
+    from .db.database import NodeDB
+    db_session = engine.vector_service.client  # just to check count
+    node_count_in_chroma = engine.vector_service.nodes_collection.count()
+
+    sql_session = engine.db.get_session()
+    try:
+        done_nodes = sql_session.query(NodeDB).filter_by(status="done").all()
+        if not done_nodes:
+            return
+
+        if node_count_in_chroma >= len(done_nodes):
+            logger.info("vector_db_up_to_date", nodes=node_count_in_chroma)
+            return
+
+        logger.info(
+            "reindexing_nodes",
+            in_chroma=node_count_in_chroma,
+            in_sqlite=len(done_nodes)
+        )
+        indexed = 0
+        for node in done_nodes:
+            try:
+                # Check if already indexed
+                existing = engine.vector_service.nodes_collection.get(ids=[node.id])
+                if existing and existing.get("ids"):
+                    continue
+            except Exception:
+                pass
+
+            embed_text = f"{node.title or ''}\n{node.summary or ''}\n{(node.content or '')[:3000]}"
+            try:
+                engine.vector_service.add_node(
+                    node_id=node.id,
+                    content=embed_text,
+                    metadata={
+                        "title": node.title or "",
+                        "type": node.type,
+                        "url": node.url or "",
+                        "tags": ", ".join(node.tags or []),
+                    }
+                )
+                indexed += 1
+            except Exception as e:
+                logger.warning("reindex_node_failed", node_id=node.id, error=str(e))
+
+        logger.info("reindex_complete", indexed=indexed)
+    finally:
+        sql_session.close()
 
 
 @app.on_event("shutdown")

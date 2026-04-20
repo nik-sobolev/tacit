@@ -3,151 +3,145 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tacit - Your Personal Work Twin</title>
-    <link rel="stylesheet" href="/static/styles.css">
+    <title>Tacit — Second Brain</title>
+    <link rel="stylesheet" href="/static/styles.css?v=9">
 </head>
 <body>
-    <div class="app-container">
+    <div class="app-root">
+
         <!-- Header -->
         <header class="app-header">
-            <div class="header-content">
-                <h1>Tacit</h1>
-                <p class="tagline">Your Personal Work Twin</p>
+            <div class="header-brand">
+                <div class="brand-icon"></div>
+                <span class="brand-name">Tacit</span>
             </div>
+
+            <div class="url-bar-wrap">
+                <span class="url-bar-icon">↓</span>
+                <input
+                    type="text"
+                    id="urlInput"
+                    class="url-bar"
+                    placeholder="Drop a YouTube, TikTok, Instagram URL or any webpage..."
+                    autocomplete="off"
+                    spellcheck="false"
+                />
+                <button id="ingestBtn" class="ingest-btn">Add to Canvas</button>
+            </div>
+
             <div class="header-actions">
-                <button id="contextsBtn" class="icon-btn" title="Manage Contexts">📝</button>
-                <button id="docsBtn" class="icon-btn" title="Manage Documents">📄</button>
-                <button id="statsBtn" class="icon-btn" title="Statistics">📊</button>
+                <button id="toggleChatBtn" class="icon-btn" title="Toggle Chat">💬</button>
+                <button id="toggleCategoryBtn" class="icon-btn" title="Categories">Tags</button>
+                <button id="resetViewBtn" class="icon-btn" title="Reset View">⊙</button>
             </div>
         </header>
 
-        <!-- Main Content -->
-        <div class="main-content">
-            <!-- Chat Area -->
-            <div class="chat-container">
-                <div id="messages" class="messages"></div>
-                <div class="input-area">
-                    <textarea
-                        id="messageInput"
-                        placeholder="Ask a question, get coached, or query your knowledge..."
-                        rows="2"
-                    ></textarea>
-                    <button id="sendBtn" class="primary-btn">Send</button>
-                </div>
-            </div>
+        <!-- Main Body -->
+        <div class="app-body">
 
-            <!-- Sidebar -->
-            <div class="sidebar">
-                <div class="tabs">
-                    <button class="tab-btn active" data-tab="quick">Quick Capture</button>
-                    <button class="tab-btn" data-tab="upload">Upload</button>
+            <!-- Chat Panel (collapsible + resizable) -->
+            <aside id="chatPanel" class="chat-panel">
+
+                <!-- Header A: chat mode -->
+                <div class="chat-header" id="chatModeHeader">
+                    <span class="chat-title">Ask Tacit</span>
+                    <div class="chat-header-actions">
+                        <button id="peopleBtn" class="chat-hdr-btn">People</button>
+                        <button id="historyBtn" class="chat-hdr-btn">History</button>
+                        <button id="newChatBtn" class="chat-hdr-btn chat-hdr-btn--primary">+ New</button>
+                    </div>
                 </div>
 
-                <!-- Quick Capture Tab -->
-                <div id="quickTab" class="tab-content active">
-                    <h3>Capture Context</h3>
-                    <form id="contextForm">
-                        <select id="contextType" required>
-                            <option value="">Select type...</option>
-                            <option value="decision">Decision</option>
-                            <option value="meeting_note">Meeting Note</option>
-                            <option value="project_context">Project Context</option>
-                            <option value="strategy">Strategy</option>
-                            <option value="insight">Insight</option>
-                            <option value="plan">Plan</option>
-                        </select>
+                <!-- Header B: history mode -->
+                <div class="chat-header chat-header--history" id="historyModeHeader">
+                    <button id="backBtn" class="chat-hdr-btn chat-hdr-btn--back">← Back</button>
+                    <span class="chat-title">Conversations</span>
+                    <button id="newChatFromHistoryBtn" class="chat-hdr-btn chat-hdr-btn--primary">+ New</button>
+                </div>
 
-                        <input
-                            type="text"
-                            id="contextTitle"
-                            placeholder="Title"
-                            required
-                        />
+                <!-- Header C: people mode -->
+                <div class="chat-header chat-header--people" id="peopleModeHeader">
+                    <button id="backFromPeopleBtn" class="chat-hdr-btn chat-hdr-btn--back">← Back</button>
+                    <span class="chat-title">People</span>
+                </div>
 
+                <!-- View A: chat -->
+                <div class="chat-view">
+                    <div id="messages" class="messages"></div>
+                    <div class="chat-input-area">
                         <textarea
-                            id="contextContent"
-                            placeholder="What did you decide? What's the context? What's your thinking?"
-                            rows="8"
-                            required
+                            id="messageInput"
+                            placeholder="Ask about anything in your canvas..."
+                            rows="2"
                         ></textarea>
-
-                        <input
-                            type="text"
-                            id="contextTags"
-                            placeholder="Tags (comma-separated)"
-                        />
-
-                        <button type="submit" class="primary-btn">Save Context</button>
-                    </form>
+                        <button id="sendBtn" class="send-btn">↑</button>
+                    </div>
                 </div>
 
-                <!-- Upload Tab -->
-                <div id="uploadTab" class="tab-content">
-                    <h3>Upload Document</h3>
-                    <div class="upload-area">
-                        <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.md" hidden />
-                        <button id="selectFileBtn" class="secondary-btn">Select File</button>
-                        <p id="fileName" class="file-name"></p>
-                        <button id="uploadBtn" class="primary-btn" disabled>Upload</button>
-                    </div>
-                    <p class="help-text">Supported: PDF, DOCX, TXT, MD (max 50MB)</p>
+                <!-- View B: history -->
+                <div class="history-view">
+                    <div id="historyList" class="history-list"></div>
                 </div>
-            </div>
-        </div>
 
-        <!-- Modals -->
-        <div id="statsModal" class="modal">
-            <div class="modal-content">
-                <span class="close" data-modal="statsModal">&times;</span>
-                <h2>Knowledge Base Stats</h2>
-                <div id="statsContent"></div>
-            </div>
-        </div>
+                <!-- View C: people -->
+                <div class="people-view">
+                    <div id="peopleList" class="people-list"></div>
+                </div>
 
-        <div id="contextsModal" class="modal">
-            <div class="modal-content large">
-                <span class="close" data-modal="contextsModal">&times;</span>
-                <h2>📝 Manage Contexts</h2>
-                <div id="contextsContent" class="contexts-list"></div>
-            </div>
-        </div>
+            </aside>
 
-        <div id="docsModal" class="modal">
-            <div class="modal-content large">
-                <span class="close" data-modal="docsModal">&times;</span>
-                <h2>📄 Document Library</h2>
-                <div id="docsContent" class="docs-list"></div>
-            </div>
-        </div>
+            <!-- Chat panel resize handle -->
+            <div class="chat-resize-handle" id="chatResizeHandle"></div>
 
-        <div id="editContextModal" class="modal">
-            <div class="modal-content">
-                <span class="close" data-modal="editContextModal">&times;</span>
-                <h2>Edit Context</h2>
-                <form id="editContextForm">
-                    <input type="hidden" id="editContextId" />
-                    <select id="editContextType" required>
-                        <option value="decision">Decision</option>
-                        <option value="meeting_note">Meeting Note</option>
-                        <option value="project_context">Project Context</option>
-                        <option value="strategy">Strategy</option>
-                        <option value="insight">Insight</option>
-                        <option value="plan">Plan</option>
-                    </select>
-                    <input type="text" id="editContextTitle" placeholder="Title" required />
-                    <textarea id="editContextContent" placeholder="Content" rows="8" required></textarea>
-                    <input type="text" id="editContextTags" placeholder="Tags (comma-separated)" />
-                    <div class="form-actions">
-                        <button type="button" class="secondary-btn" onclick="closeModal('editContextModal')">Cancel</button>
-                        <button type="submit" class="primary-btn">Save Changes</button>
+            <!-- Canvas Area -->
+            <main id="canvasViewport" class="canvas-viewport">
+                <div id="canvasSurface" class="canvas-surface">
+                    <svg id="edgesLayer" class="edges-layer"></svg>
+                    <!-- Cards injected here by JS -->
+                </div>
+
+                <!-- Empty state -->
+                <div id="emptyState" class="empty-state">
+                    <div class="empty-icon">🧠</div>
+                    <h2>Your second brain is empty</h2>
+                    <p>Paste any URL in the bar above to start capturing content.</p>
+                    <div class="empty-examples">
+                        <span>YouTube</span>
+                        <span>TikTok</span>
+                        <span>Instagram</span>
+                        <span>Articles</span>
+                        <span>Any webpage</span>
                     </div>
-                </form>
+                </div>
+            </main>
+
+            <!-- Node Detail Panel (slides in from right) -->
+            <div id="nodeDetailPanel" class="node-detail-panel">
+                <div class="detail-header">
+                    <button class="detail-close" id="closeDetailBtn">✕</button>
+                    <span id="detailType" class="detail-type-badge"></span>
+                </div>
+                <div id="detailContent" class="detail-content"></div>
             </div>
+
         </div>
     </div>
 
-    <!-- Markdown parsing library -->
+    <!-- Category Sidebar (right-side overlay, outside app-body to avoid overflow clipping) -->
+    <aside id="categorySidebar" class="category-sidebar">
+        <div class="sidebar-header">
+            <span class="sidebar-title">Categories</span>
+            <button id="autoArrangeBtn" class="sidebar-btn">Arrange</button>
+        </div>
+        <div id="categoryList" class="category-list"></div>
+        <button id="showAllBtn" class="show-all-btn">Show All</button>
+    </aside>
+
+    <!-- Toast -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Markdown -->
     <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=17"></script>
 </body>
 </html>

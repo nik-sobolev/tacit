@@ -265,7 +265,7 @@ async def search_contexts(request: Request, query: ContextSearchQuery):
                     related_to=db_context.related_to,
                     created_at=db_context.created_at,
                     updated_at=db_context.updated_at,
-                    metadata=db_context.metadata or {}
+                    metadata=db_context.extra_metadata or {}
                 )
                 enriched_results.append({
                     **context.dict(),

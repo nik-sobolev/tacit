@@ -27,6 +27,14 @@ backend/data/
 .DS_Store
 Thumbs.db
 
+# Personal / local files
+CLAUDE.md
+DAY1_COMPLETE.md
+DAY2_COMPLETE.md
+DAY3_COMPLETE.md
+TACIT_3DAY_PLAN.md
+LINKEDIN_DESCRIPTION.md
+
 # Logs
 *.log
 /tmp/

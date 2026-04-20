@@ -28,3 +28,12 @@ pytz==2024.1
 # HTTP Client
 httpx==0.26.0
 aiofiles==23.2.1
+
+# Content Ingestion
+yt-dlp>=2024.1.0
+youtube-transcript-api>=0.6.0
+trafilatura>=1.8.0
+beautifulsoup4>=4.12.0
+faster-whisper>=1.0.0
+playwright>=1.40.0
+lxml_html_clean>=0.4.0
