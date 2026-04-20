@@ -4,7 +4,7 @@ A personal knowledge canvas that captures what you read, remembers who you know,
 
 Drop any URL — YouTube, TikTok, Instagram, articles, or any webpage — and Tacit extracts the content, summarizes it, tags it, and places it on a visual canvas. Ask questions about your canvas in natural language. Tacit remembers people you mention and can search the web for anything not already in your knowledge base.
 
-![Canvas](docs/canvas-preview.png)
+![Canvas](docs/tacitscreen.png)
 
 ---
 
