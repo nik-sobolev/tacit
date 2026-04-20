@@ -32,31 +32,46 @@ Drop any URL — YouTube, TikTok, Instagram, articles, or any webpage — and Ta
 
 ## Quick Start
 
-### 1. Install dependencies
+### Docker (recommended)
+
+**Requirements:** [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 
 ```bash
-cd backend
-pip install -r requirements.txt
-```
-
-### 2. Configure
-
-```bash
+git clone https://github.com/nik-sobolev/tacit
+cd tacit
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` — set your Anthropic API key and your details:
 ```
-ANTHROPIC_API_KEY=your_key_here   # required — get one at console.anthropic.com
-USER_NAME=Your Name               # personalises Tacit's voice
+ANTHROPIC_API_KEY=your_key_here
+USER_NAME=Your Name
 USER_ROLE=Your Role
-USER_ORGANIZATION=Your Org
+USER_ORGANIZATION=Your Organization
 ```
-
-### 3. Run
 
 ```bash
+docker compose up
+```
+
+Open **http://localhost:8000** — that's it.
+
+Data (database, uploads, vector index) is stored in `./data/` on your machine and persists across restarts.
+
+---
+
+### Manual install
+
+**Requirements:** Python 3.11+, ffmpeg
+
+```bash
+git clone https://github.com/nik-sobolev/tacit
+cd tacit
+cp .env.example .env   # edit with your API key + details
+
 cd backend
+pip install -r requirements.txt
+playwright install chromium --with-deps
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 

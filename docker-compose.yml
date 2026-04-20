@@ -1,0 +1,16 @@
+services:
+  tacit:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/backend/data          # SQLite DB + ChromaDB + uploads
+      - huggingface_cache:/root/.cache    # Sentence-transformer model cache
+    environment:
+      - HOST=0.0.0.0
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  huggingface_cache:
