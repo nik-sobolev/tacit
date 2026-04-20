@@ -118,28 +118,13 @@
     .dot.y { background: #febc2e; }
     .dot.g { background: #28c840; }
     .preview-canvas {
-      position: relative; height: 360px;
-      background: radial-gradient(ellipse at 40% 50%, rgba(192,97,42,0.04) 0%, transparent 70%), var(--bg);
+      position: relative;
+      background: var(--bg);
       overflow: hidden;
     }
-
-    /* Fake canvas cards */
-    .fc {
-      position: absolute; width: 180px;
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 10px; padding: 12px 14px;
-      font-size: 0.72rem; box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    .preview-canvas img {
+      display: block; width: 100%; height: auto;
     }
-    .fc-type { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--accent); margin-bottom: 5px; }
-    .fc-title { font-weight: 600; font-size: 0.78rem; color: var(--text); margin-bottom: 4px; line-height: 1.3; }
-    .fc-summary { color: var(--muted); font-size: 0.68rem; line-height: 1.4; }
-    .fc-tag {
-      display: inline-block; margin-top: 7px;
-      font-size: 0.6rem; padding: 2px 6px; border-radius: 4px;
-      background: rgba(192,97,42,0.15); color: var(--accent);
-    }
-    /* edges */
-    .canvas-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
     /* ── Section layout ── */
     section { padding: 5rem 2rem; }
@@ -278,48 +263,7 @@
       <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
     </div>
     <div class="preview-canvas">
-      <!-- Fake edges -->
-      <svg class="canvas-svg" xmlns="http://www.w3.org/2000/svg">
-        <line x1="230" y1="130" x2="380" y2="190" stroke="#2e2e2e" stroke-width="1.5"/>
-        <line x1="380" y1="190" x2="560" y2="130" stroke="#2e2e2e" stroke-width="1.5"/>
-        <line x1="380" y1="190" x2="380" y2="290" stroke="#c0612a" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.5"/>
-        <line x1="560" y1="130" x2="700" y2="220" stroke="#2e2e2e" stroke-width="1.5"/>
-      </svg>
-
-      <!-- Cards -->
-      <div class="fc" style="left:40px; top:70px;">
-        <div class="fc-type">YouTube</div>
-        <div class="fc-title">The Attention Mechanism Explained</div>
-        <div class="fc-summary">How transformers attend to relevant tokens during inference.</div>
-        <div class="fc-tag">AI</div>
-      </div>
-
-      <div class="fc" style="left:295px; top:155px; border-color: rgba(192,97,42,0.5);">
-        <div class="fc-type">Article</div>
-        <div class="fc-title">Building a Second Brain</div>
-        <div class="fc-summary">Tiago Forte's PARA method for organising digital knowledge.</div>
-        <div class="fc-tag">Productivity</div>
-      </div>
-
-      <div class="fc" style="left:510px; top:70px;">
-        <div class="fc-type">TikTok</div>
-        <div class="fc-title">Why You Forget Everything You Read</div>
-        <div class="fc-summary">The retention problem — and why active recall beats re-reading.</div>
-        <div class="fc-tag">Learning</div>
-      </div>
-
-      <div class="fc" style="left:295px; top:275px; opacity: 0.7;">
-        <div class="fc-type" style="color:#6a737d;">Processing…</div>
-        <div class="fc-title" style="color:#666;">New article added</div>
-        <div class="fc-summary">Extracting content and generating summary.</div>
-      </div>
-
-      <div class="fc" style="left:660px; top:195px;">
-        <div class="fc-type">Webpage</div>
-        <div class="fc-title">Zettelkasten Note-Taking Method</div>
-        <div class="fc-summary">Niklas Luhmann's linked-note system and its modern digital forms.</div>
-        <div class="fc-tag">Knowledge</div>
-      </div>
+      <img src="tacitscreen.png" alt="Tacit canvas — chat panel on the left, knowledge cards on the right" />
     </div>
   </div>
 </div>
