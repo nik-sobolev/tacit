@@ -1,4 +1,4 @@
-# Tacit — Second Brain
+# Tacit - Your Second Brain
 
 A personal knowledge canvas that captures what you read, remembers who you know, and lets you chat with everything you've saved.
 
