@@ -7,6 +7,7 @@ python-multipart==0.0.6
 anthropic==0.18.1
 chromadb==0.4.22
 sentence-transformers==2.2.2
+numpy<2.0
 
 # Document Processing
 PyPDF2==3.0.1
