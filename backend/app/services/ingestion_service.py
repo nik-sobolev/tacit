@@ -75,14 +75,13 @@ class IngestionService:
             created_at=datetime.utcnow(),
         )
 
-        session = self.db.get_session()
-        try:
+        with self.db.session_scope() as session:
             session.add(node)
-            session.commit()
+            session.flush()
             session.refresh(node)
+            # Detach from session so caller can use the object after session closes
+            session.expunge(node)
             logger.info("node_created", node_id=node_id, type=content_type)
-        finally:
-            session.close()
 
         return node
 

@@ -1,0 +1,33 @@
+name: api
+type: Load Balanced Web Service
+
+image:
+  location: 127063729235.dkr.ecr.us-west-2.amazonaws.com/tacit/api:amd64-stable
+  port: 8000
+
+http:
+  path: '/'
+  healthcheck:
+    path: '/api/health'
+    interval: 30s
+    timeout: 10s
+    retries: 3
+
+cpu: 512
+memory: 1024
+count: 1
+exec: true
+
+network:
+  vpc:
+    placement: public
+
+variables:
+  HOST: 0.0.0.0
+  PORT: "8000"
+  CLERK_PUBLISHABLE_KEY: pk_test_dWx0aW1hdGUtc3RpbmtidWctNTMuY2xlcmsuYWNjb3VudHMuZGV2JA
+
+secrets:
+  ANTHROPIC_API_KEY: /copilot/${COPILOT_APPLICATION_NAME}/${COPILOT_ENVIRONMENT_NAME}/secrets/ANTHROPIC_API_KEY
+  DATABASE_URL: /copilot/${COPILOT_APPLICATION_NAME}/${COPILOT_ENVIRONMENT_NAME}/secrets/DATABASE_URL
+  CLERK_SECRET_KEY: /copilot/${COPILOT_APPLICATION_NAME}/${COPILOT_ENVIRONMENT_NAME}/secrets/CLERK_SECRET_KEY

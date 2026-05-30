@@ -10,6 +10,31 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# Project-root anchored data dir — never CWD-relative.
+# config.py is at backend/app/core/config.py → backend/ is 3 levels up.
+_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+_DEFAULT_DATA_DIR = _BACKEND_DIR / "data"
+_DEFAULT_DB_URL = f"sqlite:///{_DEFAULT_DATA_DIR / 'tacit.db'}"
+_DEFAULT_CHROMA_DIR = str(_DEFAULT_DATA_DIR / "chroma")
+
+
+def _normalize_path(p: str) -> str:
+    """Resolve a possibly-relative path against backend/ so CWD doesn't matter."""
+    pp = Path(p)
+    if not pp.is_absolute():
+        pp = (_BACKEND_DIR / pp).resolve()
+    return str(pp)
+
+
+def _normalize_db_url(url: str) -> str:
+    """Make a relative sqlite:/// URL absolute, anchored to backend/."""
+    if url.startswith("sqlite:///"):
+        path_part = url[len("sqlite:///"):]
+        # If exactly 'sqlite:///' (4 slashes for absolute) we'd see a leading '/'; leave it.
+        if not path_part.startswith("/"):
+            return f"sqlite:///{_normalize_path(path_part)}"
+    return url
+
 
 class TacitConfig(BaseModel):
     """Main configuration for Tacit"""
@@ -28,8 +53,8 @@ class TacitConfig(BaseModel):
     temperature: float = 0.7
 
     # Database Configuration
-    database_url: str = "sqlite:///./data/tacit.db"
-    chroma_persist_dir: str = "./data/chroma"
+    database_url: str = _DEFAULT_DB_URL
+    chroma_persist_dir: str = _DEFAULT_CHROMA_DIR
 
     # Document Processing
     chunk_size: int = 500  # tokens per chunk
@@ -61,8 +86,8 @@ class TacitConfig(BaseModel):
             user_role=os.getenv("USER_ROLE", "Executive"),
             user_organization=os.getenv("USER_ORGANIZATION", "Organization"),
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
-            database_url=os.getenv("DATABASE_URL", "sqlite:///./data/tacit.db"),
-            chroma_persist_dir=os.getenv("CHROMA_PERSIST_DIR", "./data/chroma"),
+            database_url=_normalize_db_url(os.getenv("DATABASE_URL", _DEFAULT_DB_URL)),
+            chroma_persist_dir=_normalize_path(os.getenv("CHROMA_PERSIST_DIR", _DEFAULT_CHROMA_DIR)),
             host=os.getenv("HOST", "127.0.0.1"),
             port=int(os.getenv("PORT", "8000")),
             debug=os.getenv("DEBUG", "true").lower() == "true",
@@ -143,6 +168,7 @@ Use **markdown formatting** for clarity:
 3. **Be concise** - {self.user_name} values efficiency
 4. **Bullet points need spacing** - add blank lines between each item
 5. **Stay in character** - you are {self.user_name}'s twin, not a generic AI
+6. **People memory is mandatory** — whenever the user mentions a person by name AND shares ANY detail (even one sentence, even casual), call `record_person` immediately using the `note` field to capture what was said. Never let a personal detail pass unrecorded. "My partner", "she's stressed", "he blocked the project" — all must be saved.
 
 ## Coaching Style
 

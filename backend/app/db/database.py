@@ -1,13 +1,27 @@
 """SQLite database setup and models"""
 
+import os
+import time
 import structlog
-from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, DateTime, Text, JSON, ForeignKey
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+
+from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, DateTime, Text, JSON, ForeignKey, event, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from datetime import datetime
-import os
+from sqlalchemy.pool import NullPool
 
 logger = structlog.get_logger()
+
+
+# Data dir moved to ~/.tacit to avoid iCloud sync locking the SQLite WAL file.
+# The original ~/Documents/tacit/backend/data/ was inside iCloud Drive which
+# caused persistent disk I/O errors on writes.
+DEFAULT_DATA_DIR = Path.home() / ".tacit" / "data"
+DEFAULT_DB_PATH = DEFAULT_DATA_DIR / "tacit.db"
+DEFAULT_DATABASE_URL = f"sqlite:///{DEFAULT_DB_PATH}"
 
 Base = declarative_base()
 
@@ -121,45 +135,129 @@ class PersonDB(Base):
     mention_count      = Column(Integer, default=1)
 
 
+class ShareTokenDB(Base):
+    """Share token for read-only canvas access"""
+    __tablename__ = "share_tokens"
+
+    token = Column(String, primary_key=True)
+    label = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    revoked = Column(Integer, default=0)
+
+
 class Database:
     """Database manager"""
 
-    def __init__(self, database_url: str = "sqlite:///./data/tacit.db"):
-        """Initialize database"""
+    def __init__(self, database_url: str = DEFAULT_DATABASE_URL):
+        self.database_url = database_url
+        self._build_engine()
+        Base.metadata.create_all(bind=self.engine)
+        logger.info("database_initialized", database_url=database_url)
 
-        # Ensure data directory exists
-        os.makedirs("./data", exist_ok=True)
+    def _build_engine(self):
+        # Ensure parent dir exists for sqlite file URLs
+        if self.database_url.startswith("sqlite:///"):
+            db_file = self.database_url.replace("sqlite:///", "", 1)
+            Path(db_file).parent.mkdir(parents=True, exist_ok=True)
 
+        is_sqlite = "sqlite" in self.database_url
         self.engine = create_engine(
-            database_url,
-            connect_args={"check_same_thread": False} if "sqlite" in database_url else {},
-            pool_pre_ping=True,
+            self.database_url,
+            connect_args={"check_same_thread": False, "timeout": 30} if is_sqlite else {},
+            poolclass=NullPool if is_sqlite else None,
         )
 
-        # Enable WAL mode for better concurrent read/write handling
-        if "sqlite" in database_url:
-            from sqlalchemy import event, text
+        if is_sqlite:
             @event.listens_for(self.engine, "connect")
             def set_sqlite_pragma(dbapi_connection, connection_record):
                 cursor = dbapi_connection.cursor()
                 cursor.execute("PRAGMA journal_mode=WAL")
-                cursor.execute("PRAGMA busy_timeout=5000")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.execute("PRAGMA busy_timeout=30000")
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.execute("PRAGMA temp_store=MEMORY")
                 cursor.close()
 
-        # Create tables
-        Base.metadata.create_all(bind=self.engine)
-
-        # Create session factory
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
 
-        logger.info("database_initialized", database_url=database_url)
+    def _recycle_engine(self):
+        """Tear down and rebuild the engine — used when the connection pool is wedged."""
+        try:
+            self.engine.dispose()
+        except Exception:
+            pass
+        self._build_engine()
+        logger.warning("database_engine_recycled")
 
     def get_session(self):
-        """Get a database session"""
         return self.SessionLocal()
 
+    @contextmanager
+    def session_scope(self):
+        """Yield a session that auto-commits on success, rolls back on error, always closes.
+
+        On a SQLite 'disk I/O error' / 'database is locked', recycle the engine then re-raise
+        so the next call gets a fresh connection pool. (Cannot retry from inside a
+        contextmanager — see run_with_retry for the wrapper that retries the operation.)
+        """
+        session = self.SessionLocal()
+        try:
+            yield session
+            session.commit()
+        except OperationalError as e:
+            try:
+                session.rollback()
+            except Exception:
+                pass
+            msg = str(e).lower()
+            if "disk i/o error" in msg or "database is locked" in msg or "database disk image is malformed" in msg:
+                logger.warning("sqlite_transient_error_recycling_engine", error=str(e))
+                try:
+                    session.close()
+                except Exception:
+                    pass
+                self._recycle_engine()
+            raise
+        except Exception:
+            try:
+                session.rollback()
+            except Exception:
+                pass
+            raise
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+    def run_with_retry(self, fn, max_attempts: int = 2, backoff: float = 0.1):
+        """Run fn(session) inside a session_scope with retry on transient SQLite errors.
+
+        fn receives a fresh Session and must do its work + return a result. Auto-commit
+        happens via session_scope. On 'disk I/O error' / 'database is locked', the engine
+        is recycled and fn is called again with a brand new session.
+        """
+        last_exc = None
+        for attempt in range(max_attempts):
+            try:
+                with self.session_scope() as session:
+                    return fn(session)
+            except OperationalError as e:
+                last_exc = e
+                msg = str(e).lower()
+                transient = (
+                    "disk i/o error" in msg
+                    or "database is locked" in msg
+                    or "database disk image is malformed" in msg
+                )
+                if transient and attempt < max_attempts - 1:
+                    time.sleep(backoff)
+                    continue
+                raise
+        if last_exc:
+            raise last_exc
+
     def close(self):
-        """Close database connection"""
         self.engine.dispose()
 
 
@@ -167,8 +265,7 @@ class Database:
 _db_instance = None
 
 
-def get_database(database_url: str = "sqlite:///./data/tacit.db") -> Database:
-    """Get or create database instance"""
+def get_database(database_url: str = DEFAULT_DATABASE_URL) -> Database:
     global _db_instance
     if _db_instance is None:
         _db_instance = Database(database_url)

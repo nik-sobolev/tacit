@@ -1,5 +1,6 @@
 """Chat API endpoints"""
 
+import asyncio
 from fastapi import APIRouter, HTTPException, Request
 from typing import Optional
 import uuid
@@ -24,6 +25,15 @@ async def send_message(request: Request, chat_request: ChatRequest):
             user_message=chat_request.message,
             mode=chat_request.mode
         )
+
+        # Kick off background graph processing for any URLs ingested via chat
+        graph_service = request.app.state.graph_service
+        for action in result.get('actions', []):
+            if action.get('type') == 'ingest_started':
+                node_id = action['node_id']
+                asyncio.get_event_loop().run_in_executor(
+                    None, graph_service.process_node, node_id
+                )
 
         return ChatResponse(
             response=result['response'],

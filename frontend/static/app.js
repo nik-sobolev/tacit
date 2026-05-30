@@ -599,6 +599,8 @@ function initChat() {
     });
     document.getElementById('peopleBtn').addEventListener('click', showPeople);
     document.getElementById('backFromPeopleBtn').addEventListener('click', hidePeople);
+    document.getElementById('notesBtn').addEventListener('click', showNotes);
+    document.getElementById('backFromNotesBtn').addEventListener('click', hideNotes);
 }
 
 function initChatResize() {
@@ -682,13 +684,88 @@ function hideHistory() {
 
 function showPeople() {
     const panel = document.getElementById('chatPanel');
-    panel.classList.remove('history-mode');
+    panel.classList.remove('history-mode', 'notes-mode');
     panel.classList.add('people-mode');
     loadPeopleList();
 }
 
 function hidePeople() {
     document.getElementById('chatPanel').classList.remove('people-mode');
+}
+
+function showNotes() {
+    const panel = document.getElementById('chatPanel');
+    panel.classList.remove('history-mode', 'people-mode');
+    panel.classList.add('notes-mode');
+    loadNotesList();
+}
+
+function hideNotes() {
+    document.getElementById('chatPanel').classList.remove('notes-mode');
+}
+
+async function loadNotesList() {
+    const list = document.getElementById('notesList');
+    list.innerHTML = '<div class="notes-loading">Loading…</div>';
+    try {
+        const res = await fetch('/api/notes');
+        const data = await res.json();
+        const notes = data.notes || [];
+        if (!notes.length) {
+            list.innerHTML = '<div class="notes-empty">No notes yet.<br>Paste text in chat to create one.</div>';
+            return;
+        }
+        list.innerHTML = notes.map(buildNoteCard).join('');
+        list.querySelectorAll('.note-delete-btn').forEach(btn => {
+            btn.addEventListener('click', async e => {
+                e.stopPropagation();
+                const card = btn.closest('[data-note-id]');
+                const id = card.dataset.noteId;
+                btn.disabled = true;
+                try {
+                    const r = await fetch(`/api/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                    if (r.ok) {
+                        card.remove();
+                        if (!list.querySelector('.note-card')) {
+                            list.innerHTML = '<div class="notes-empty">No notes yet.<br>Paste text in chat to create one.</div>';
+                        }
+                    } else {
+                        btn.disabled = false;
+                        showToast('Could not delete note', 'error');
+                    }
+                } catch {
+                    btn.disabled = false;
+                    showToast('Could not delete note', 'error');
+                }
+            });
+        });
+    } catch {
+        list.innerHTML = '<div class="notes-empty">Failed to load notes.</div>';
+    }
+}
+
+function buildNoteCard(n) {
+    const date = n.created_at ? new Date(n.created_at).toLocaleDateString() : '';
+    const isProcessing = n.status === 'processing' || n.status === 'pending';
+    const summaryHtml = isProcessing
+        ? '<div class="notes-loading" style="padding:4px 0;text-align:left">Processing…</div>'
+        : n.summary ? `<div class="note-card-summary">${escapeHtml(n.summary)}</div>` : '';
+    const expandHtml = n.content ? `
+        <details>
+            <summary class="note-card-expand">Show full text</summary>
+            <div class="note-card-full">${escapeHtml(n.content)}</div>
+        </details>` : '';
+    const tags = (n.tags || []).map(t => `<span class="note-card-tag">${escapeHtml(t)}</span>`).join('');
+    return `<div class="note-card" data-note-id="${escapeHtml(n.id)}">
+        <div class="note-card-header">
+            <span class="note-card-title">${escapeHtml(n.title)}</span>
+            <button class="note-delete-btn" title="Delete note">✕</button>
+        </div>
+        ${date ? `<div class="note-card-date">${date}</div>` : ''}
+        ${summaryHtml}
+        ${expandHtml}
+        ${tags ? `<div class="note-card-tags">${tags}</div>` : ''}
+    </div>`;
 }
 
 async function loadPeopleList() {
@@ -884,6 +961,26 @@ async function sendMessage() {
                 if (action.type === 'edge_removed') {
                     graphData.edges = graphData.edges.filter(e => e.id !== action.edge_id);
                     edgesChanged++;
+                }
+                if (action.type === 'ingest_started') {
+                    if (nodeElements[action.node_id]) continue;
+                    const vp = document.getElementById('canvasViewport');
+                    const cx = (-canvasX + vp.clientWidth / 2) / canvasScale + (Math.random() * 200 - 100);
+                    const cy = (-canvasY + vp.clientHeight / 2) / canvasScale + (Math.random() * 200 - 100);
+                    const placeholderNode = {
+                        id: action.node_id, type: action.node_type || 'webpage',
+                        title: action.title || action.url, summary: null,
+                        thumbnail_url: null, url: action.url,
+                        canvas_x: cx, canvas_y: cy, status: 'processing',
+                        tags: [], metadata: {},
+                    };
+                    createCard(placeholderNode);
+                    graphData.nodes.push(placeholderNode);
+                    updateEmptyState(graphData.nodes.length);
+                    pollNodeStatus(action.node_id);
+                    if (action.node_type === 'note' && document.getElementById('chatPanel').classList.contains('notes-mode')) {
+                        setTimeout(loadNotesList, 500);
+                    }
                 }
             }
             if (edgesChanged > 0) {

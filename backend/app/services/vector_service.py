@@ -1,6 +1,7 @@
 """Vector database service using ChromaDB"""
 
 import os
+from pathlib import Path
 import structlog
 from typing import List, Dict, Any, Optional
 import chromadb
@@ -12,7 +13,7 @@ logger = structlog.get_logger()
 class VectorService:
     """Service for managing vector embeddings and semantic search"""
 
-    def __init__(self, persist_directory: str = "./data/chroma"):
+    def __init__(self, persist_directory: str = str(Path.home() / ".tacit" / "data" / "chroma")):
         """Initialize ChromaDB client"""
 
         # Resolve to absolute path so it persists regardless of cwd

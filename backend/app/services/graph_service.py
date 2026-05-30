@@ -47,17 +47,23 @@ class GraphService:
             existing_categories = self._get_existing_categories(session)
             agent_result = self._run_agent(node, existing_summary, existing_categories)
 
-            # Update node with agent results
-            if agent_result.get("title") and not node.title:
-                node.title = agent_result["title"][:500]
-            if agent_result.get("summary"):
-                node.summary = agent_result["summary"]
-            if agent_result.get("tags"):
-                node.tags = agent_result["tags"][:10]
-            node.status = "done"
-            node.processed_at = datetime.utcnow()
+            # Close the SQLAlchemy session before writing — its open connection
+            # can block raw sqlite3 writes in the same process on macOS
+            node_type = node.type
+            node_url = node.url or ""
+            node_content = node.content or ""
+            node_created_at = node.created_at
+            session.close()
+            session = None
 
-            # Store enriched metadata
+            # Write results via raw sqlite3 — bypasses SQLAlchemy session issues
+            # that cause disk I/O errors in executor threads on macOS
+            import sqlite3 as _sqlite3
+            from ..db.database import DEFAULT_DB_PATH as _DB_PATH
+
+            title_out = (agent_result.get("title") or node.title or "")[:500]
+            summary_out = agent_result.get("summary") or ""
+            tags_out = (agent_result.get("tags") or [])[:10]
             meta = dict(node.node_meta or {})
             if agent_result.get("key_entities"):
                 meta["key_entities"] = agent_result["key_entities"]
@@ -65,56 +71,89 @@ class GraphService:
                 meta["category"] = agent_result["category"]
             if agent_result.get("purpose"):
                 meta["purpose"] = agent_result["purpose"]
-            node.node_meta = meta
+            content_out = (node.content or "")[:3000]
+            now = datetime.utcnow().isoformat()
 
-            session.commit()
+            for _attempt in range(3):
+                try:
+                    _conn = _sqlite3.connect(str(_DB_PATH), timeout=10)
+                    _conn.execute(
+                        "UPDATE nodes SET title=?, summary=?, status=?, tags=?, node_meta=?, processed_at=? WHERE id=?",
+                        (
+                            title_out,
+                            summary_out,
+                            "done",
+                            json.dumps(tags_out),
+                            json.dumps(meta),
+                            now,
+                            node_id,
+                        )
+                    )
+                    _conn.commit()
+                    _conn.close()
+                    break
+                except Exception as _we:
+                    if _attempt < 2:
+                        import time as _t
+                        _t.sleep(0.3 * (_attempt + 1))
+                    else:
+                        raise
 
-            # Add to vector DB (use summary + content for richer embeddings)
-            embed_text = f"{node.title or ''}\n{node.summary or ''}\n{(node.content or '')[:3000]}"
+            # Add to vector DB
+            embed_text = f"{title_out}\n{summary_out}\n{content_out}"
             self.vector_service.add_node(
                 node_id=node_id,
                 content=embed_text,
                 metadata={
-                    "title": node.title or "",
-                    "type": node.type,
-                    "url": node.url or "",
-                    "tags": ", ".join(node.tags or []),
-                    "created_at": node.created_at.isoformat() if node.created_at else "",
+                    "title": title_out,
+                    "type": node_type,
+                    "url": node_url,
+                    "tags": ", ".join(tags_out),
+                    "created_at": node_created_at.isoformat() if node_created_at else "",
                     "category": meta.get("category", ""),
                     "purpose": meta.get("purpose", ""),
                 }
             )
 
-            # Create edges to related nodes
+            # Create edges to related nodes (fresh session — original was closed above)
             connections = agent_result.get("connections", [])
-            self._create_agent_edges(node_id, connections, session)
+            edge_session = self.db.get_session()
+            try:
+                self._create_agent_edges(node_id, connections, edge_session)
+            finally:
+                edge_session.close()
 
             # Also run vector-similarity auto-link now that this node is embedded
             self.auto_link(node_id)
 
-            logger.info("node_processed", node_id=node_id, tags=node.tags)
+            logger.info("node_processed", node_id=node_id, tags=tags_out)
 
         except Exception as e:
             logger.error("process_node_error", node_id=node_id, error=str(e))
-            # Use a fresh session for error handling — the original may be broken
-            try:
-                session.rollback()
-            except Exception:
-                pass
+            if session:
+                try:
+                    session.rollback()
+                    session.close()
+                except Exception:
+                    pass
             try:
                 err_session = self.db.get_session()
                 try:
-                    node = err_session.query(NodeDB).filter_by(id=node_id).first()
-                    if node:
-                        node.status = "error"
-                        node.error_message = str(e)[:500]
+                    n = err_session.query(NodeDB).filter_by(id=node_id).first()
+                    if n:
+                        n.status = "error"
+                        n.error_message = str(e)[:500]
                         err_session.commit()
                 finally:
                     err_session.close()
             except Exception as e2:
                 logger.error("process_node_error_handler_failed", node_id=node_id, error=str(e2))
         finally:
-            session.close()
+            if session:
+                try:
+                    session.close()
+                except Exception:
+                    pass
 
     def _get_existing_categories(self, session) -> List[str]:
         """Get distinct categories already used across nodes."""

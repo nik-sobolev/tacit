@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM --platform=linux/amd64 public.ecr.aws/docker/library/python:3.11-slim
 
 # System dependencies for ffmpeg (audio), playwright (JS-heavy pages)
 RUN apt-get update && apt-get install -y \

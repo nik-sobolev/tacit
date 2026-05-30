@@ -20,9 +20,10 @@ class IngestRequest(BaseModel):
 @router.post("/ingest")
 async def ingest_url(request: Request, body: IngestRequest):
     """Ingest a URL: detect type, extract content, create node, run agent in background."""
+    db = get_database()
+
     # Duplicate check — return existing node immediately, skip re-ingestion
-    dup_session = get_database().get_session()
-    try:
+    with db.session_scope() as dup_session:
         existing = dup_session.query(NodeDB).filter_by(url=body.url).first()
         if existing:
             return {
@@ -34,24 +35,38 @@ async def ingest_url(request: Request, body: IngestRequest):
                 "canvas_y": existing.canvas_y,
                 "duplicate": True,
             }
-    finally:
-        dup_session.close()
+
+    ingestion_service = request.app.state.ingestion_service
+    graph_service = request.app.state.graph_service
 
     try:
-        ingestion_service = request.app.state.ingestion_service
-        graph_service = request.app.state.graph_service
-
-        # Synchronous extraction + node creation
-        node = ingestion_service.ingest_url(
-            url=body.url,
-            canvas_x=body.canvas_x,
-            canvas_y=body.canvas_y,
+        # Run blocking extraction + node insert off the event loop
+        loop = asyncio.get_event_loop()
+        node = await loop.run_in_executor(
+            None,
+            lambda: ingestion_service.ingest_url(
+                url=body.url,
+                canvas_x=body.canvas_x,
+                canvas_y=body.canvas_y,
+            ),
         )
 
-        # Run agent processing in background (non-blocking)
-        asyncio.get_event_loop().run_in_executor(
-            None, graph_service.process_node, node.id
-        )
+        # Background processing — fire and forget; failures won't crash the request
+        def _safe_process(node_id: str):
+            try:
+                graph_service.process_node(node_id)
+            except Exception as e:
+                logger.error("graph_process_node_failed", node_id=node_id, error=str(e))
+                try:
+                    with db.session_scope() as s:
+                        n = s.query(NodeDB).filter_by(id=node_id).first()
+                        if n and n.status != "done":
+                            n.status = "error"
+                            n.error_message = f"Processing failed: {e}"
+                except Exception as inner:
+                    logger.error("graph_process_status_update_failed", node_id=node_id, error=str(inner))
+
+        loop.run_in_executor(None, _safe_process, node.id)
 
         return {
             "node_id": node.id,
@@ -71,9 +86,7 @@ async def ingest_url(request: Request, body: IngestRequest):
 async def get_ingest_status(request: Request, node_id: str):
     """Poll processing status for a node."""
     try:
-        db = get_database()
-        session = db.get_session()
-        try:
+        with get_database().session_scope() as session:
             node = session.query(NodeDB).filter_by(id=node_id).first()
             if not node:
                 raise HTTPException(status_code=404, detail="Node not found")
@@ -87,8 +100,6 @@ async def get_ingest_status(request: Request, node_id: str):
                 "error_message": node.error_message,
                 "processed_at": node.processed_at.isoformat() if node.processed_at else None,
             }
-        finally:
-            session.close()
     except HTTPException:
         raise
     except Exception as e:

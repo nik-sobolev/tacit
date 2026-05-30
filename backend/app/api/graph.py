@@ -12,6 +12,33 @@ logger = structlog.get_logger()
 router = APIRouter()
 
 
+@router.get("/notes")
+async def list_notes():
+    """Return all note nodes with full content, newest first."""
+    db = get_database()
+    with db.session_scope() as s:
+        rows = (
+            s.query(NodeDB)
+            .filter(NodeDB.type == "note")
+            .order_by(NodeDB.created_at.desc())
+            .all()
+        )
+        return {
+            "notes": [
+                {
+                    "id": n.id,
+                    "title": n.title or "Untitled",
+                    "summary": n.summary or "",
+                    "content": n.content or "",
+                    "tags": n.tags or [],
+                    "status": n.status,
+                    "created_at": n.created_at.isoformat() if n.created_at else None,
+                }
+                for n in rows
+            ]
+        }
+
+
 @router.get("/categories")
 async def get_categories():
     """Return all categories with node counts."""

@@ -9,7 +9,7 @@ from pathlib import Path
 import os
 
 from .api import chat, context, documents
-from .api import ingest, graph as graph_api
+from .api import ingest, graph as graph_api, share as share_api
 from .core.config import TacitConfig
 from .core.engine import TacitEngine
 from .services.ingestion_service import IngestionService
@@ -52,6 +52,7 @@ graph_service = GraphService(
     model=config.default_model,
 )
 engine.graph_service = graph_service
+engine.ingestion_service = ingestion_service
 
 # Make services available to routes
 app.state.engine = engine
@@ -65,11 +66,41 @@ app.include_router(context.router, prefix="/api", tags=["context"])
 app.include_router(documents.router, prefix="/api", tags=["documents"])
 app.include_router(ingest.router, prefix="/api", tags=["ingest"])
 app.include_router(graph_api.router, prefix="/api", tags=["graph"])
+app.include_router(share_api.router, prefix="/api", tags=["share"])
 
 # Serve frontend
 frontend_path = Path(__file__).parent.parent.parent / "frontend" / "static"
 if frontend_path.exists():
     app.mount("/static", StaticFiles(directory=str(frontend_path)), name="static")
+
+
+@app.get("/share/{token}", response_class=HTMLResponse)
+async def share_canvas(token: str):
+    from .db.database import ShareTokenDB, get_database
+    db = get_database()
+
+    def _check(session):
+        row = session.query(ShareTokenDB).filter_by(token=token).first()
+        if not row:
+            return ("not_found", None)
+        return ("ok", int(row.revoked or 0))
+
+    try:
+        status, revoked = db.run_with_retry(_check)
+    except Exception as e:
+        logger.error("share_canvas_db_error", error=str(e))
+        return HTMLResponse(
+            "<h1 style='font-family:sans-serif;padding:40px'>Temporary error — please refresh in a moment</h1>",
+            status_code=503,
+        )
+
+    if status == "not_found":
+        return HTMLResponse("<h1 style='font-family:sans-serif;padding:40px'>Link not found</h1>", status_code=404)
+    if revoked:
+        return HTMLResponse("<h1 style='font-family:sans-serif;padding:40px'>This link has been revoked</h1>", status_code=403)
+
+    html_file = frontend_path / "read_only.html"
+    return HTMLResponse(html_file.read_text())
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -135,9 +166,10 @@ async def startup_event():
         model=config.default_model
     )
 
-    # Ensure data directories exist
-    os.makedirs("./data/uploads", exist_ok=True)
-    os.makedirs("./data/chroma", exist_ok=True)
+    # Ensure data directories exist (absolute paths anchored to backend/)
+    from .db.database import DEFAULT_DATA_DIR
+    (DEFAULT_DATA_DIR / "uploads").mkdir(parents=True, exist_ok=True)
+    (DEFAULT_DATA_DIR / "chroma").mkdir(parents=True, exist_ok=True)
 
     # Mark any nodes stuck in "processing" from a previous run as errors
     _recover_stuck_nodes()
@@ -149,18 +181,16 @@ async def startup_event():
 def _recover_stuck_nodes():
     """Mark any nodes left in processing/pending state from a previous run as errors."""
     from .db.database import NodeDB, get_database
-    db = get_database()
-    session = db.get_session()
     try:
-        stuck = session.query(NodeDB).filter(NodeDB.status.in_(["processing", "pending"])).all()
-        if stuck:
-            for node in stuck:
-                node.status = "error"
-                node.error_message = "Processing interrupted by server restart"
-            session.commit()
-            logger.info("recovered_stuck_nodes", count=len(stuck))
-    finally:
-        session.close()
+        with get_database().session_scope() as session:
+            stuck = session.query(NodeDB).filter(NodeDB.status.in_(["processing", "pending"])).all()
+            if stuck:
+                for node in stuck:
+                    node.status = "error"
+                    node.error_message = "Processing interrupted by server restart"
+                logger.info("recovered_stuck_nodes", count=len(stuck))
+    except Exception as e:
+        logger.error("recover_stuck_nodes_failed", error=str(e))
 
 
 def _reindex_missing_nodes():

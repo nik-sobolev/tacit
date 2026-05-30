@@ -43,3 +43,4 @@ LINKEDIN_DESCRIPTION.md
 node_modules/
 dist/
 build/
+.gstack/

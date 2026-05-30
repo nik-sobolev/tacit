@@ -1,0 +1,13 @@
+version: 0.2
+phases:
+  pre_build:
+    commands:
+      - aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 127063729235.dkr.ecr.us-west-2.amazonaws.com
+  build:
+    commands:
+      - docker build -t tacit/api:latest .
+      - docker tag tacit/api:latest 127063729235.dkr.ecr.us-west-2.amazonaws.com/tacit/api:latest
+  post_build:
+    commands:
+      - docker push 127063729235.dkr.ecr.us-west-2.amazonaws.com/tacit/api:latest
+      - echo Build completed

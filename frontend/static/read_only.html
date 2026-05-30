@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tacit — Shared Canvas</title>
+    <link rel="stylesheet" href="/static/styles.css?v=9">
+    <style>
+        /* Read-only overrides */
+        .canvas-card { cursor: default !important; }
+        .canvas-card:active { cursor: default !important; }
+        .canvas-viewport { cursor: grab; }
+        .canvas-viewport:active { cursor: grabbing; }
+
+        /* Shared canvas banner */
+        .share-banner {
+            position: fixed;
+            bottom: 16px;
+            right: 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-size: 12px;
+            color: var(--text-tertiary);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .share-banner-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--primary);
+            flex-shrink: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-root">
+
+        <!-- Header — no URL bar, no ingest -->
+        <header class="app-header">
+            <div class="header-brand">
+                <div class="brand-icon"></div>
+                <span class="brand-name">Tacit</span>
+            </div>
+            <div style="flex:1"></div>
+            <div class="header-actions">
+                <button id="toggleChatBtn" class="icon-btn" title="Toggle Chat">💬</button>
+                <button id="resetViewBtn" class="icon-btn" title="Reset View">⊙</button>
+            </div>
+        </header>
+
+        <div class="app-body">
+
+            <!-- Chat Panel -->
+            <aside id="chatPanel" class="chat-panel">
+                <div class="chat-header" id="chatModeHeader">
+                    <span class="chat-title">Ask Tacit</span>
+                    <div class="chat-header-actions">
+                        <button id="newChatBtn" class="chat-hdr-btn chat-hdr-btn--primary">+ New</button>
+                    </div>
+                </div>
+                <div class="chat-view">
+                    <div id="messages" class="messages"></div>
+                    <div class="chat-input-area">
+                        <textarea id="messageInput" placeholder="Ask about anything in this canvas..." rows="2"></textarea>
+                        <button id="sendBtn" class="send-btn">↑</button>
+                    </div>
+                </div>
+            </aside>
+
+            <div class="chat-resize-handle" id="chatResizeHandle"></div>
+
+            <!-- Canvas -->
+            <main id="canvasViewport" class="canvas-viewport">
+                <div id="canvasSurface" class="canvas-surface">
+                    <svg id="edgesLayer" class="edges-layer"></svg>
+                </div>
+                <div id="emptyState" class="empty-state" style="display:none">
+                    <div class="empty-icon">🧠</div>
+                    <h2>Canvas is empty</h2>
+                    <p>Nothing has been added yet.</p>
+                </div>
+            </main>
+
+        </div>
+    </div>
+
+    <!-- Shared canvas badge -->
+    <div class="share-banner">
+        <div class="share-banner-dot"></div>
+        Shared canvas — read only
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <script>
+    // ── Minimal read-only canvas + chat ──────────────────────────────────────
+
+    const API = '';  // same origin
+
+    // ── State ─────────────────────────────────────────────────────────────────
+    let nodes = [], edges = [];
+    let transform = { x: 60, y: 60, scale: 1 };
+    let isPanning = false, panStart = null;
+    let conversationId = null;
+
+    // ── DOM ───────────────────────────────────────────────────────────────────
+    const viewport   = document.getElementById('canvasViewport');
+    const surface    = document.getElementById('canvasSurface');
+    const edgesSVG   = document.getElementById('edgesLayer');
+    const messagesEl = document.getElementById('messages');
+    const inputEl    = document.getElementById('messageInput');
+    const sendBtn    = document.getElementById('sendBtn');
+    const chatPanel  = document.getElementById('chatPanel');
+    const emptyState = document.getElementById('emptyState');
+
+    // ── Canvas transform ──────────────────────────────────────────────────────
+    function applyTransform() {
+        surface.style.transform = `translate(${transform.x}px,${transform.y}px) scale(${transform.scale})`;
+    }
+
+    viewport.addEventListener('mousedown', e => {
+        if (e.target !== viewport && e.target !== surface && !e.target.classList.contains('edges-layer')) return;
+        isPanning = true;
+        panStart = { x: e.clientX - transform.x, y: e.clientY - transform.y };
+    });
+    window.addEventListener('mousemove', e => {
+        if (!isPanning) return;
+        transform.x = e.clientX - panStart.x;
+        transform.y = e.clientY - panStart.y;
+        applyTransform();
+    });
+    window.addEventListener('mouseup', () => { isPanning = false; });
+
+    viewport.addEventListener('wheel', e => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        const rect = viewport.getBoundingClientRect();
+        const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        transform.x = mx - (mx - transform.x) * delta;
+        transform.y = my - (my - transform.y) * delta;
+        transform.scale = Math.max(0.2, Math.min(3, transform.scale * delta));
+        applyTransform();
+    }, { passive: false });
+
+    document.getElementById('resetViewBtn').addEventListener('click', () => {
+        transform = { x: 60, y: 60, scale: 1 };
+        applyTransform();
+    });
+
+    // ── Toggle chat ───────────────────────────────────────────────────────────
+    document.getElementById('toggleChatBtn').addEventListener('click', () => {
+        chatPanel.classList.toggle('collapsed');
+    });
+
+    // ── Resize handle ─────────────────────────────────────────────────────────
+    const resizeHandle = document.getElementById('chatResizeHandle');
+    let isResizing = false, resizeStartX = 0, resizeStartW = 0;
+    resizeHandle.addEventListener('mousedown', e => {
+        isResizing = true;
+        resizeStartX = e.clientX;
+        resizeStartW = chatPanel.offsetWidth;
+        resizeHandle.classList.add('dragging');
+    });
+    window.addEventListener('mousemove', e => {
+        if (!isResizing) return;
+        const w = Math.max(240, Math.min(520, resizeStartW + e.clientX - resizeStartX));
+        chatPanel.style.width = w + 'px';
+    });
+    window.addEventListener('mouseup', () => { isResizing = false; resizeHandle.classList.remove('dragging'); });
+
+    // ── Load graph ────────────────────────────────────────────────────────────
+    async function loadGraph() {
+        const res = await fetch('/api/graph');
+        const data = await res.json();
+        nodes = data.nodes || [];
+        edges = data.edges || [];
+        renderCanvas();
+        if (nodes.length === 0) emptyState.style.display = 'flex';
+    }
+
+    // ── Card rendering ────────────────────────────────────────────────────────
+    const TYPE_COLORS = {
+        youtube: '#ff4444', tiktok: '#69c9d0', instagram: '#e1306c',
+        webpage: '#4a9eff', document: '#7c5cbf', note: '#d4a574', text: '#d4a574'
+    };
+    const TYPE_ICONS = {
+        youtube: '▶', tiktok: '♪', instagram: '◈', webpage: '◉',
+        document: '⬡', note: '◇', text: '◇'
+    };
+
+    function renderCanvas() {
+        // Clear existing cards (not SVG)
+        surface.querySelectorAll('.canvas-card').forEach(el => el.remove());
+
+        nodes.forEach(node => {
+            const card = document.createElement('div');
+            card.className = `canvas-card card-${node.type}`;
+            card.style.left = (node.canvas_x ?? 100) + 'px';
+            card.style.top  = (node.canvas_y ?? 100) + 'px';
+            card.style.borderTopColor = TYPE_COLORS[node.type] || '#4a9eff';
+
+            const tags = (node.tags || []).slice(0, 3).map(t =>
+                `<span class="card-tag">${t}</span>`).join('');
+
+            const thumb = node.thumbnail_url
+                ? `<img class="card-thumb" src="${node.thumbnail_url}" loading="lazy" alt="">`
+                : '';
+
+            card.innerHTML = `
+                <div class="card-header">
+                    <span class="card-type-icon">${TYPE_ICONS[node.type] || '◉'}</span>
+                    <span class="card-type-label">${node.type}</span>
+                </div>
+                ${thumb}
+                <div class="card-body">
+                    <div class="card-title">${node.title || 'Untitled'}</div>
+                    <div class="card-summary">${node.summary || ''}</div>
+                    ${tags ? `<div class="card-tags">${tags}</div>` : ''}
+                </div>
+                ${node.url ? `<div class="card-footer"><a class="card-url" href="${node.url}" target="_blank" rel="noopener">${node.url}</a></div>` : ''}
+            `;
+
+            surface.appendChild(card);
+        });
+
+        renderEdges();
+        applyTransform();
+    }
+
+    // ── Edge rendering ────────────────────────────────────────────────────────
+    function renderEdges() {
+        edgesSVG.innerHTML = '';
+        const nodeMap = {};
+        surface.querySelectorAll('.canvas-card').forEach((el, i) => {
+            if (nodes[i]) nodeMap[nodes[i].id] = el;
+        });
+
+        edges.forEach(edge => {
+            const srcEl = nodeMap[edge.source_id];
+            const tgtEl = nodeMap[edge.target_id];
+            if (!srcEl || !tgtEl) return;
+
+            const sx = parseInt(srcEl.style.left) + srcEl.offsetWidth / 2;
+            const sy = parseInt(srcEl.style.top)  + srcEl.offsetHeight / 2;
+            const tx = parseInt(tgtEl.style.left) + tgtEl.offsetWidth / 2;
+            const ty = parseInt(tgtEl.style.top)  + tgtEl.offsetHeight / 2;
+
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', sx); line.setAttribute('y1', sy);
+            line.setAttribute('x2', tx); line.setAttribute('y2', ty);
+            line.setAttribute('stroke', 'rgba(192,86,33,0.2)');
+            line.setAttribute('stroke-width', '1.5');
+            line.setAttribute('stroke-dasharray', '4 4');
+            edgesSVG.appendChild(line);
+        });
+    }
+
+    // ── Chat ──────────────────────────────────────────────────────────────────
+    function appendMessage(role, content) {
+        const el = document.createElement('div');
+        el.className = `message ${role}`;
+        const bubble = document.createElement('div');
+        bubble.className = 'message-bubble';
+        if (role === 'assistant') {
+            bubble.innerHTML = marked.parse(content);
+        } else {
+            bubble.textContent = content;
+        }
+        el.appendChild(bubble);
+        messagesEl.appendChild(el);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        return el;
+    }
+
+    async function sendMessage() {
+        const text = inputEl.value.trim();
+        if (!text) return;
+        inputEl.value = '';
+        inputEl.style.height = '';
+        sendBtn.disabled = true;
+
+        appendMessage('user', text);
+
+        const loadingEl = appendMessage('assistant', '');
+        loadingEl.querySelector('.message-bubble').innerHTML =
+            '<div class="loading-dots"><span></span><span></span><span></span></div>';
+
+        try {
+            const res = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: text, conversation_id: conversationId, mode: 'general' })
+            });
+            const data = await res.json();
+            conversationId = data.conversation_id;
+            loadingEl.querySelector('.message-bubble').innerHTML = marked.parse(data.response || '');
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        } catch (err) {
+            loadingEl.querySelector('.message-bubble').textContent = 'Error — please try again.';
+        } finally {
+            sendBtn.disabled = false;
+        }
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+    inputEl.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+    inputEl.addEventListener('input', () => {
+        inputEl.style.height = 'auto';
+        inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+    });
+
+    document.getElementById('newChatBtn').addEventListener('click', () => {
+        conversationId = null;
+        messagesEl.innerHTML = '';
+    });
+
+    // ── Boot ──────────────────────────────────────────────────────────────────
+    applyTransform();
+    loadGraph();
+    </script>
+</body>
+</html>

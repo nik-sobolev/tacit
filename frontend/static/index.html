@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tacit — Second Brain</title>
-    <link rel="stylesheet" href="/static/styles.css?v=9">
+    <link rel="stylesheet" href="/static/styles.css?v=10">
 </head>
 <body>
     <div class="app-root">
@@ -47,6 +47,7 @@
                     <span class="chat-title">Ask Tacit</span>
                     <div class="chat-header-actions">
                         <button id="peopleBtn" class="chat-hdr-btn">People</button>
+                        <button id="notesBtn" class="chat-hdr-btn">Notes</button>
                         <button id="historyBtn" class="chat-hdr-btn">History</button>
                         <button id="newChatBtn" class="chat-hdr-btn chat-hdr-btn--primary">+ New</button>
                     </div>
@@ -63,6 +64,12 @@
                 <div class="chat-header chat-header--people" id="peopleModeHeader">
                     <button id="backFromPeopleBtn" class="chat-hdr-btn chat-hdr-btn--back">← Back</button>
                     <span class="chat-title">People</span>
+                </div>
+
+                <!-- Header D: notes mode -->
+                <div class="chat-header chat-header--notes" id="notesModeHeader">
+                    <button id="backFromNotesBtn" class="chat-hdr-btn chat-hdr-btn--back">← Back</button>
+                    <span class="chat-title">Notes</span>
                 </div>
 
                 <!-- View A: chat -->
@@ -86,6 +93,11 @@
                 <!-- View C: people -->
                 <div class="people-view">
                     <div id="peopleList" class="people-list"></div>
+                </div>
+
+                <!-- View D: notes -->
+                <div class="notes-view">
+                    <div id="notesList" class="notes-list"></div>
                 </div>
 
             </aside>
@@ -142,6 +154,6 @@
 
     <!-- Markdown -->
     <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
-    <script src="/static/app.js?v=17"></script>
+    <script src="/static/app.js?v=18"></script>
 </body>
 </html>

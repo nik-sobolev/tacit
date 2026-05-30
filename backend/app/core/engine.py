@@ -160,6 +160,9 @@ class TacitEngine:
         # Always inject complete canvas inventory so chat sees all nodes in real-time
         knowledge["canvas_nodes"] = self._get_all_canvas_nodes()
 
+        # Inject note content so Claude can read saved text notes
+        knowledge["notes"] = self._get_notes_for_context()
+
         # Add orphan nodes context
         knowledge["orphan_nodes"] = self._get_orphan_nodes()
 
@@ -168,12 +171,14 @@ class TacitEngine:
 
         # People tools always on; canvas tools only when linking intent detected
         enable_canvas_tools = self._has_linking_intent(user_message)
+        enable_ingest_tool = True  # URL + note tools always available; Claude decides when to call each
 
         # Generate response
         response_text, actions = self._generate_response(
             system_prompt,
             self.conversations[session_id],
-            enable_canvas_tools=enable_canvas_tools
+            enable_canvas_tools=enable_canvas_tools,
+            enable_ingest_tool=enable_ingest_tool,
         )
 
         # Persist + cache the assistant response
@@ -317,6 +322,27 @@ class TacitEngine:
             ]
         finally:
             session.close()
+
+    def _get_notes_for_context(self) -> list:
+        """Fetch all text notes with content for system prompt injection."""
+        with self.db.session_scope() as s:
+            notes = (
+                s.query(NodeDB)
+                .filter(NodeDB.type == "note", NodeDB.status == "done")
+                .order_by(NodeDB.created_at.desc())
+                .all()
+            )
+            return [
+                {
+                    "id": n.id,
+                    "title": n.title or "Untitled",
+                    "summary": n.summary or "",
+                    "content": (n.content or "")[:2000],
+                    "tags": n.tags or [],
+                    "created_at": n.created_at.isoformat()[:10] if n.created_at else "",
+                }
+                for n in notes
+            ]
 
     def _get_all_canvas_nodes(self) -> list:
         """Fetch compact inventory of ALL canvas nodes for real-time awareness."""
@@ -537,6 +563,18 @@ class TacitEngine:
                     knowledge_section.append(f"  ↳ {n['summary']}")
             knowledge_section.append("")
 
+        notes = knowledge.get("notes", [])
+        if notes:
+            knowledge_section.append("\n## Saved Text Notes\n")
+            for n in notes:
+                date_str = f" · {n['created_at']}" if n["created_at"] else ""
+                knowledge_section.append(f"- **{n['title']}**{date_str}")
+                if n["summary"]:
+                    knowledge_section.append(f"  Summary: {n['summary']}")
+                if n["content"]:
+                    knowledge_section.append(f"  Content: {n['content'][:800]}")
+            knowledge_section.append("")
+
         if knowledge.get("contexts"):
             knowledge_section.append("\n## Relevant Contexts from Your Knowledge Base\n")
             for i, ctx in enumerate(knowledge["contexts"][:5], 1):
@@ -624,11 +662,13 @@ The user is looking for specific information from their knowledge base.
         {
             "name": "record_person",
             "description": (
-                "Record or update a person mentioned in the conversation. "
-                "Call this whenever the user mentions a person by name and provides "
-                "any context (role, relationship, action items). Also call when new "
-                "context about an already-known person emerges. Do NOT call for public "
-                "figures unless the user has a personal working relationship with them."
+                "Record or update a person in memory. "
+                "ALWAYS call this immediately when: "
+                "(1) the user introduces a person by name with ANY detail — even just their role or relationship; "
+                "(2) the user shares ANYTHING new about a known person, no matter how casual or anecdotal. "
+                "Capture it in 'note' exactly as the user said it, or as a concise paraphrase. "
+                "Never wait for 'enough' context — one sentence is enough to record. "
+                "Do NOT call for public figures unless the user has a personal relationship with them."
             ),
             "input_schema": {
                 "type": "object",
@@ -682,9 +722,22 @@ The user is looking for specific information from their knowledge base.
         "unlink", "disconnect", "detach", "remove", "delete",
     }
 
+    _URL_RE = re.compile(r'https?://\S+', re.IGNORECASE)
+
     def _has_linking_intent(self, message: str) -> bool:
         words = set(message.lower().split())
         return bool(words & self._LINKING_KEYWORDS)
+
+    def _has_url(self, message: str) -> bool:
+        return bool(self._URL_RE.search(message))
+
+    _NOTE_KEYWORDS = {"note", "save", "remember", "capture", "jot"}
+
+    def _should_offer_note_tool(self, message: str) -> bool:
+        if len(message) > 300:
+            return True
+        lower = message.lower()
+        return any(kw in lower for kw in self._NOTE_KEYWORDS)
 
     # ==================== CANVAS TOOLS ====================
 
@@ -750,6 +803,53 @@ The user is looking for specific information from their knowledge base.
                     }
                 },
                 "required": ["source_id", "target_id"]
+            }
+        }
+    ]
+
+    # ==================== INGEST TOOL ====================
+
+    _INGEST_TOOLS = [
+        {
+            "name": "ingest_url",
+            "description": (
+                "Add a URL to the user's canvas by ingesting it. "
+                "Call this when the user pastes a URL or asks to add/save/bookmark a link. "
+                "Do NOT call this for URLs already on the canvas. "
+                "Do NOT call this for x.com or twitter.com URLs — tell the user to use the URL bar instead."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The full http/https URL to ingest"
+                    }
+                },
+                "required": ["url"]
+            }
+        },
+        {
+            "name": "create_text_note",
+            "description": (
+                "Save raw text content as a note card on the user's canvas. "
+                "Use when the user pastes article text, quotes, or asks to save/note/remember something as text. "
+                "Also use when a URL can't be scraped (e.g. X/Twitter) and the user pastes the content manually. "
+                "Generate a concise title from the content if the user doesn't provide one."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "The full text content to save as a note"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Short title for the note. Derive from content if not provided."
+                    }
+                },
+                "required": ["content"]
             }
         }
     ]
@@ -912,6 +1012,108 @@ The user is looking for specific information from their knowledge base.
             actions.append({"type": "web_search", "query": query})
             return result
 
+        if name == "ingest_url":
+            from urllib.parse import urlparse
+            import random
+            import threading
+
+            url = (inputs.get("url") or "").strip()
+            if not url or not url.startswith("http"):
+                return {"error": "A valid http/https URL is required"}
+
+            host = urlparse(url).netloc.lower().replace("www.", "")
+            if host in {"x.com", "twitter.com"}:
+                return {"error": "X/Twitter URLs can't be ingested via chat. Use the URL bar instead."}
+
+            with self.db.session_scope() as s:
+                existing = s.query(NodeDB).filter_by(url=url).first()
+                if existing:
+                    return {
+                        "duplicate": True,
+                        "node_id": existing.id,
+                        "title": existing.title or url,
+                        "message": "This URL is already on your canvas.",
+                    }
+
+            if not getattr(self, "ingestion_service", None):
+                return {"error": "Ingestion service unavailable"}
+
+            canvas_x = 300.0 + random.uniform(-100, 100)
+            canvas_y = 300.0 + random.uniform(-100, 100)
+
+            try:
+                node = self.ingestion_service.ingest_url(url=url, canvas_x=canvas_x, canvas_y=canvas_y)
+            except Exception as e:
+                logger.error("ingest_url_tool_error", url=url, error=str(e))
+                return {"error": f"Failed to start ingestion: {e}"}
+
+            actions.append({
+                "type": "ingest_started",
+                "node_id": node.id,
+                "url": url,
+                "node_type": node.type,
+                "title": node.title or url,
+                "canvas_x": canvas_x,
+                "canvas_y": canvas_y,
+            })
+
+            logger.info("ingest_url_tool_called", node_id=node.id, url=url)
+            return {
+                "success": True,
+                "node_id": node.id,
+                "title": node.title or url,
+                "type": node.type,
+                "message": "Ingestion started — the card will appear on your canvas shortly.",
+            }
+
+        if name == "create_text_note":
+            import random
+            content = (inputs.get("content") or "").strip()
+            if not content:
+                return {"error": "content is required"}
+
+            raw_title = (inputs.get("title") or "").strip()
+            title = raw_title or content[:80].split("\n")[0]
+
+            canvas_x = 300.0 + random.uniform(-100, 100)
+            canvas_y = 300.0 + random.uniform(-100, 100)
+            node_id = str(uuid.uuid4())
+            now = datetime.utcnow()
+
+            with self.db.session_scope() as s:
+                s.add(NodeDB(
+                    id=node_id,
+                    type="note",
+                    title=title[:500],
+                    content=content,
+                    summary=None,
+                    url=None,
+                    canvas_x=canvas_x,
+                    canvas_y=canvas_y,
+                    status="processing",
+                    tags=[],
+                    node_meta={},
+                    created_at=now,
+                ))
+
+            actions.append({
+                "type": "ingest_started",
+                "node_id": node_id,
+                "url": None,
+                "node_type": "note",
+                "title": title[:500],
+                "canvas_x": canvas_x,
+                "canvas_y": canvas_y,
+            })
+
+            logger.info("create_text_note_called", node_id=node_id, title=title[:40])
+            return {
+                "success": True,
+                "node_id": node_id,
+                "title": title,
+                "message": "Note saved — the card will appear on your canvas shortly.",
+            }
+
         return {"error": f"Unknown tool: {name}"}
 
     def _execute_search_web(self, query: str) -> Dict[str, Any]:
@@ -966,7 +1168,8 @@ The user is looking for specific information from their knowledge base.
         self,
         system_prompt: str,
         conversation: List[Dict[str, Any]],
-        enable_canvas_tools: bool = False
+        enable_canvas_tools: bool = False,
+        enable_ingest_tool: bool = False,
     ) -> Tuple[str, List[Dict]]:
         messages = [
             {"role": msg["role"], "content": msg["content"]}
@@ -976,10 +1179,12 @@ The user is looking for specific information from their knowledge base.
 
         actions: List[Dict] = []
 
-        # People + search always enabled; canvas tools only when linking intent detected
+        # People + search always enabled; canvas and ingest tools conditionally
         tools = list(self._PEOPLE_TOOLS) + list(self._SEARCH_TOOLS)
         if enable_canvas_tools:
             tools.extend(self._CANVAS_TOOLS)
+        if enable_ingest_tool:
+            tools.extend(self._INGEST_TOOLS)
 
         try:
             # Agentic tool_use loop (max 5 iterations)
