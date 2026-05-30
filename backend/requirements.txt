@@ -4,7 +4,7 @@ uvicorn==0.27.0
 python-multipart==0.0.6
 
 # AI & Embeddings
-anthropic==0.18.1
+anthropic>=0.40.0
 chromadb==0.4.22
 sentence-transformers==2.2.2
 numpy<2.0
