@@ -8,21 +8,21 @@ const API_BASE = '/api';
 let clerkInstance = null;
 let getAuthToken = async () => null; // overridden after Clerk loads
 
-async function waitForClerk(maxMs = 10000) {
-    const start = Date.now();
-    while (!window.Clerk) {
-        if (Date.now() - start > maxMs) return null;
-        await new Promise(r => setTimeout(r, 100));
-    }
-    return window.Clerk;
-}
-
 async function initAuth() {
     document.querySelector('.app-root').style.visibility = 'hidden';
     try {
-        const Clerk = await waitForClerk();
-        if (!Clerk) throw new Error('Clerk JS failed to load (timeout)');
-        await Clerk.load({ publishableKey: window.CLERK_PUBLISHABLE_KEY });
+        // Clerk loads async from clerk.trytacit.app — wait for window load then use global Clerk
+        await new Promise(resolve => {
+            if (document.readyState === 'complete') resolve();
+            else window.addEventListener('load', resolve, { once: true });
+        });
+        // Poll briefly for Clerk global (set by the async script after load)
+        let attempts = 0;
+        while (!window.Clerk && attempts++ < 50) {
+            await new Promise(r => setTimeout(r, 100));
+        }
+        if (!window.Clerk) throw new Error('Clerk JS failed to load from clerk.trytacit.app');
+        await window.Clerk.load();
         const clerk = window.Clerk;
         clerkInstance = clerk;
 
