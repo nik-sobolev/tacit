@@ -14,7 +14,7 @@ logger = structlog.get_logger()
 class DocumentProcessor:
     """Service for processing and extracting text from documents"""
 
-    def __init__(self, upload_dir: str = str(Path.home() / ".tacit" / "data" / "uploads")):
+    def __init__(self, upload_dir: str = str(Path(os.getenv("DATA_DIR", str(Path.home() / ".tacit" / "data"))) / "uploads")):
         self.upload_dir = Path(upload_dir)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
 

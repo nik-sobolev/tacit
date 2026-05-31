@@ -16,10 +16,10 @@ from sqlalchemy.pool import NullPool
 logger = structlog.get_logger()
 
 
-# Data dir moved to ~/.tacit to avoid iCloud sync locking the SQLite WAL file.
-# The original ~/Documents/tacit/backend/data/ was inside iCloud Drive which
-# caused persistent disk I/O errors on writes.
-DEFAULT_DATA_DIR = Path.home() / ".tacit" / "data"
+# DATA_DIR env var allows mounting a persistent disk on Render/cloud.
+# Falls back to ~/.tacit/data for local dev (outside iCloud).
+import os as _os
+DEFAULT_DATA_DIR = Path(_os.getenv("DATA_DIR", str(Path.home() / ".tacit" / "data")))
 DEFAULT_DB_PATH = DEFAULT_DATA_DIR / "tacit.db"
 DEFAULT_DATABASE_URL = f"sqlite:///{DEFAULT_DB_PATH}"
 
