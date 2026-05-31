@@ -8,11 +8,21 @@ const API_BASE = '/api';
 let clerkInstance = null;
 let getAuthToken = async () => null; // overridden after Clerk loads
 
+async function waitForClerk(maxMs = 10000) {
+    const start = Date.now();
+    while (!window.Clerk) {
+        if (Date.now() - start > maxMs) return null;
+        await new Promise(r => setTimeout(r, 100));
+    }
+    return window.Clerk;
+}
+
 async function initAuth() {
     document.querySelector('.app-root').style.visibility = 'hidden';
     try {
-        if (!window.Clerk) throw new Error('Clerk JS not loaded');
-        await window.Clerk.load({ publishableKey: window.CLERK_PUBLISHABLE_KEY });
+        const Clerk = await waitForClerk();
+        if (!Clerk) throw new Error('Clerk JS failed to load (timeout)');
+        await Clerk.load({ publishableKey: window.CLERK_PUBLISHABLE_KEY });
         const clerk = window.Clerk;
         clerkInstance = clerk;
 
