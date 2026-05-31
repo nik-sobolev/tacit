@@ -135,6 +135,17 @@ class PersonDB(Base):
     mention_count      = Column(Integer, default=1)
 
 
+class UserSettingsDB(Base):
+    """Single-row settings table for user personalization"""
+    __tablename__ = "user_settings"
+
+    id           = Column(String, primary_key=True, default="default")
+    user_name    = Column(String(200), default="User")
+    user_role    = Column(String(200), default="")
+    organization = Column(String(200), default="")
+    updated_at   = Column(DateTime, default=datetime.utcnow)
+
+
 class ShareTokenDB(Base):
     """Share token for read-only canvas access"""
     __tablename__ = "share_tokens"

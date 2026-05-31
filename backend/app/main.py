@@ -166,6 +166,21 @@ async def startup_event():
         model=config.default_model
     )
 
+    # Load user settings from DB into engine config
+    from .db.database import UserSettingsDB, get_database as _get_db
+    try:
+        with _get_db().session_scope() as s:
+            row = s.query(UserSettingsDB).filter_by(id="default").first()
+            if row:
+                if row.user_name:
+                    config.user_name = row.user_name
+                if row.user_role:
+                    config.user_role = row.user_role
+                if row.organization:
+                    config.user_organization = row.organization
+    except Exception:
+        pass
+
     # Ensure data directories exist (absolute paths anchored to backend/)
     from .db.database import DEFAULT_DATA_DIR
     (DEFAULT_DATA_DIR / "uploads").mkdir(parents=True, exist_ok=True)

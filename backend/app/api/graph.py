@@ -6,10 +6,54 @@ from pydantic import BaseModel
 from typing import Optional, List
 from sqlalchemy import func
 
-from ..db.database import get_database, NodeDB, EdgeDB, ConversationDB
+from ..db.database import get_database, NodeDB, EdgeDB, ConversationDB, UserSettingsDB
+from datetime import datetime
 
 logger = structlog.get_logger()
 router = APIRouter()
+
+
+class SettingsUpdate(BaseModel):
+    user_name: Optional[str] = None
+    user_role: Optional[str] = None
+    organization: Optional[str] = None
+
+
+@router.get("/settings")
+async def get_settings():
+    db = get_database()
+    with db.session_scope() as s:
+        row = s.query(UserSettingsDB).filter_by(id="default").first()
+        if not row:
+            row = UserSettingsDB(id="default")
+            s.add(row)
+        return {"user_name": row.user_name, "user_role": row.user_role, "organization": row.organization}
+
+
+@router.put("/settings")
+async def update_settings(body: SettingsUpdate, request: Request):
+    db = get_database()
+    with db.session_scope() as s:
+        row = s.query(UserSettingsDB).filter_by(id="default").first()
+        if not row:
+            row = UserSettingsDB(id="default")
+            s.add(row)
+        if body.user_name is not None:
+            row.user_name = body.user_name
+        if body.user_role is not None:
+            row.user_role = body.user_role
+        if body.organization is not None:
+            row.organization = body.organization
+        row.updated_at = datetime.utcnow()
+    # Reload engine config with new settings
+    try:
+        engine = request.app.state.engine
+        engine.config.user_name = body.user_name or engine.config.user_name
+        engine.config.user_role = body.user_role or engine.config.user_role
+        engine.config.user_organization = body.organization or engine.config.user_organization
+    except Exception:
+        pass
+    return {"ok": True}
 
 
 @router.get("/notes")

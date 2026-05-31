@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tacit — Second Brain</title>
-    <link rel="stylesheet" href="/static/styles.css?v=10">
+    <link rel="stylesheet" href="/static/styles.css?v=11">
 </head>
 <body>
     <div class="app-root">
@@ -33,6 +33,7 @@
                 <button id="toggleChatBtn" class="icon-btn" title="Toggle Chat">💬</button>
                 <button id="toggleCategoryBtn" class="icon-btn" title="Categories">Tags</button>
                 <button id="resetViewBtn" class="icon-btn" title="Reset View">⊙</button>
+                <button id="settingsBtn" class="icon-btn" title="Settings">⚙</button>
             </div>
         </header>
 
@@ -152,8 +153,35 @@
     <!-- Toast -->
     <div id="toast" class="toast"></div>
 
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal-overlay" style="display:none">
+        <div class="modal-card">
+            <div class="modal-header">
+                <span class="modal-title">Settings</span>
+                <button id="settingsCloseBtn" class="modal-close">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-field">
+                    <label class="settings-label">Your Name</label>
+                    <input id="settingName" type="text" class="settings-input" placeholder="e.g. Nik">
+                </div>
+                <div class="settings-field">
+                    <label class="settings-label">Role</label>
+                    <input id="settingRole" type="text" class="settings-input" placeholder="e.g. Product Manager">
+                </div>
+                <div class="settings-field">
+                    <label class="settings-label">Organization</label>
+                    <input id="settingOrg" type="text" class="settings-input" placeholder="e.g. ADP">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="settingsSaveBtn" class="ingest-btn">Save</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Markdown -->
     <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
-    <script src="/static/app.js?v=18"></script>
+    <script src="/static/app.js?v=19"></script>
 </body>
 </html>

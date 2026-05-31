@@ -1059,6 +1059,52 @@ function initUI() {
     document.getElementById('closeDetailBtn').addEventListener('click', () => {
         document.getElementById('nodeDetailPanel').classList.remove('open');
     });
+    document.getElementById('settingsBtn').addEventListener('click', openSettings);
+    document.getElementById('settingsCloseBtn').addEventListener('click', closeSettings);
+    document.getElementById('settingsSaveBtn').addEventListener('click', saveSettings);
+    document.getElementById('settingsModal').addEventListener('click', e => {
+        if (e.target === document.getElementById('settingsModal')) closeSettings();
+    });
+}
+
+async function openSettings() {
+    try {
+        const res = await fetch('/api/settings');
+        const d = await res.json();
+        document.getElementById('settingName').value = d.user_name || '';
+        document.getElementById('settingRole').value = d.user_role || '';
+        document.getElementById('settingOrg').value = d.organization || '';
+    } catch {}
+    document.getElementById('settingsModal').style.display = 'flex';
+    document.getElementById('settingName').focus();
+}
+
+function closeSettings() {
+    document.getElementById('settingsModal').style.display = 'none';
+}
+
+async function saveSettings() {
+    const btn = document.getElementById('settingsSaveBtn');
+    btn.textContent = 'Saving…';
+    btn.disabled = true;
+    try {
+        await fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_name: document.getElementById('settingName').value.trim(),
+                user_role: document.getElementById('settingRole').value.trim(),
+                organization: document.getElementById('settingOrg').value.trim(),
+            })
+        });
+        closeSettings();
+        showToast('Settings saved', 'success');
+    } catch {
+        showToast('Failed to save settings', 'error');
+    } finally {
+        btn.textContent = 'Save';
+        btn.disabled = false;
+    }
 }
 
 function toggleChat() {
