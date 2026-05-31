@@ -5,13 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tacit — Second Brain</title>
     <link rel="stylesheet" href="/static/styles.css?v=11">
-    <script>
-        window.CLERK_PUBLISHABLE_KEY = "pk_live_Y2xlcmsudHJ5dGFjaXQuYXBwJA";
-        window._clerkReady = new Promise(function(resolve) {
-            window._resolveClerk = resolve;
-        });
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js" onload="window._resolveClerk(window.Clerk)" onerror="window._resolveClerk(null)"></script>
+    <script>window.CLERK_PUBLISHABLE_KEY = "pk_live_Y2xlcmsudHJ5dGFjaXQuYXBwJA";</script>
+    <script src="https://unpkg.com/@clerk/clerk-js@latest/dist/clerk.browser.js"></script>
 </head>
 <body>
     <div class="app-root">
@@ -190,6 +185,6 @@
 
     <!-- Markdown -->
     <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
-    <script src="/static/app.js?v=19"></script>
+    <script src="/static/app.js?v=23"></script>
 </body>
 </html>
