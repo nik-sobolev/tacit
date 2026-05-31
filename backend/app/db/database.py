@@ -58,11 +58,21 @@ class DocumentDB(Base):
     extra_metadata = Column(JSON, default=dict)
 
 
+class UserDB(Base):
+    """User account synced from Clerk"""
+    __tablename__ = "users"
+
+    id         = Column(String, primary_key=True)   # Clerk user ID
+    email      = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class NodeDB(Base):
     """Canvas node - any piece of ingested content"""
     __tablename__ = "nodes"
 
     id = Column(String, primary_key=True)
+    user_id = Column(String, index=True, nullable=True)
     type = Column(String(30), nullable=False)       # youtube|webpage|tiktok|instagram|note|document|text
     title = Column(String(500), nullable=True)
     content = Column(Text, nullable=True)           # full transcript or page text
@@ -98,6 +108,7 @@ class ConversationDB(Base):
     __tablename__ = "conversations"
 
     id = Column(String, primary_key=True)
+    user_id = Column(String, index=True, nullable=True)
     title = Column(String(200), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_activity = Column(DateTime, default=datetime.utcnow)
@@ -122,6 +133,7 @@ class PersonDB(Base):
     __tablename__ = "people"
 
     id                 = Column(String, primary_key=True)
+    user_id            = Column(String, index=True, nullable=True)
     name               = Column(String(200), nullable=False)
     name_lower         = Column(String(200), nullable=False)
     role               = Column(String(200), nullable=True)

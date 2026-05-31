@@ -1,22 +1,62 @@
 """Chat API endpoints"""
 
 import asyncio
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from typing import Optional
 import uuid
 
 from ..models.chat import ChatRequest, ChatResponse, ChatMode
+from ..core.auth import get_current_user
+from ..db.database import get_database, UserDB, UserSettingsDB
+from ..core.config import TacitConfig
 
 router = APIRouter()
 
 
+def _upsert_user(user: dict):
+    """Create user record on first login."""
+    db = get_database()
+    try:
+        with db.session_scope() as s:
+            if not s.query(UserDB).filter_by(id=user["id"]).first():
+                s.add(UserDB(id=user["id"], email=user.get("email", "")))
+    except Exception:
+        pass
+
+
+def _load_user_config(user_id: str, base_config: TacitConfig) -> TacitConfig:
+    """Load per-user settings and return a personalized config."""
+    db = get_database()
+    try:
+        with db.session_scope() as s:
+            row = s.query(UserSettingsDB).filter_by(id=user_id).first()
+            if row:
+                cfg = base_config.model_copy()
+                cfg.user_name = row.user_name or base_config.user_name
+                cfg.user_role = row.user_role or base_config.user_role
+                cfg.user_organization = row.organization or base_config.user_organization
+                return cfg
+    except Exception:
+        pass
+    return base_config
+
+
 @router.post("/chat", response_model=ChatResponse)
-async def send_message(request: Request, chat_request: ChatRequest):
+async def send_message(
+    request: Request,
+    chat_request: ChatRequest,
+    current_user: dict = Depends(get_current_user),
+):
     """Send a message to the twin and get a response"""
     try:
+        _upsert_user(current_user)
         engine = request.app.state.engine
 
-        # Generate or use provided session ID
+        # Load per-user config
+        user_config = _load_user_config(current_user["id"], request.app.state.config)
+        engine.config = user_config
+
+        # Generate or use provided session ID, scoped to user
         session_id = chat_request.session_id or str(uuid.uuid4())
 
         # Process message through engine

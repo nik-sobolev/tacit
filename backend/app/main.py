@@ -1,7 +1,7 @@
 """Tacit FastAPI application"""
 
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
@@ -10,6 +10,7 @@ import os
 
 from .api import chat, context, documents
 from .api import ingest, graph as graph_api, share as share_api
+from .core.auth import get_current_user
 from .core.config import TacitConfig
 from .core.engine import TacitEngine
 from .services.ingestion_service import IngestionService
@@ -60,12 +61,16 @@ app.state.config = config
 app.state.ingestion_service = ingestion_service
 app.state.graph_service = graph_service
 
-# Include API routers
-app.include_router(chat.router, prefix="/api", tags=["chat"])
-app.include_router(context.router, prefix="/api", tags=["context"])
-app.include_router(documents.router, prefix="/api", tags=["documents"])
-app.include_router(ingest.router, prefix="/api", tags=["ingest"])
-app.include_router(graph_api.router, prefix="/api", tags=["graph"])
+# Auth dependency applied to all protected routers
+auth_dep = [Depends(get_current_user)]
+
+# Include API routers — protected by Clerk JWT
+app.include_router(chat.router, prefix="/api", tags=["chat"], dependencies=auth_dep)
+app.include_router(context.router, prefix="/api", tags=["context"], dependencies=auth_dep)
+app.include_router(documents.router, prefix="/api", tags=["documents"], dependencies=auth_dep)
+app.include_router(ingest.router, prefix="/api", tags=["ingest"], dependencies=auth_dep)
+app.include_router(graph_api.router, prefix="/api", tags=["graph"], dependencies=auth_dep)
+# Share tokens are public (unauthenticated by design)
 app.include_router(share_api.router, prefix="/api", tags=["share"])
 
 # Serve frontend

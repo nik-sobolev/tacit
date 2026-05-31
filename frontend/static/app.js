@@ -3,6 +3,61 @@ console.log('[Tacit] app.js v3 loaded (canvas)');
 
 const API_BASE = '/api';
 
+// ==================== CLERK AUTH ====================
+
+let clerkInstance = null;
+let getAuthToken = async () => null; // overridden after Clerk loads
+
+async function initAuth() {
+    try {
+        const clerk = new window.Clerk(window.CLERK_PUBLISHABLE_KEY);
+        await clerk.load();
+        clerkInstance = clerk;
+
+        if (!clerk.user) {
+            // Show sign-in UI covering the whole app
+            const container = document.createElement('div');
+            container.id = 'clerk-auth-container';
+            container.style.cssText = 'position:fixed;inset:0;z-index:99999;background:var(--bg,#0f1419);display:flex;align-items:center;justify-content:center;';
+            document.body.appendChild(container);
+            clerk.openSignIn({ afterSignInUrl: window.location.href });
+            return false;
+        }
+
+        getAuthToken = () => clerk.session.getToken();
+        addUserMenuToHeader(clerk);
+        return true;
+    } catch (e) {
+        console.warn('[Tacit] Clerk auth failed, running without auth:', e);
+        return true; // fail open for local dev
+    }
+}
+
+function addUserMenuToHeader(clerk) {
+    const actions = document.querySelector('.header-actions');
+    if (!actions) return;
+    const userBtn = document.createElement('button');
+    userBtn.className = 'icon-btn';
+    userBtn.title = clerk.user.primaryEmailAddress?.emailAddress || 'Account';
+    userBtn.textContent = (clerk.user.firstName || '?')[0].toUpperCase();
+    userBtn.style.fontWeight = '700';
+    userBtn.addEventListener('click', () => clerk.openUserProfile());
+    actions.insertBefore(userBtn, actions.firstChild);
+}
+
+// Authenticated fetch — wraps all API calls with Bearer token
+async function apiFetch(url, opts = {}) {
+    const token = await getAuthToken();
+    return fetch(url, {
+        ...opts,
+        headers: {
+            ...(opts.headers || {}),
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            'Content-Type': opts.body && typeof opts.body === 'string' ? 'application/json' : (opts.headers?.['Content-Type'] || 'application/json'),
+        }
+    });
+}
+
 // ==================== CANVAS STATE ====================
 
 let canvasX = 0, canvasY = 0, canvasScale = 1;
@@ -55,6 +110,9 @@ function flagDuplicates() {
 // ==================== INIT ====================
 
 document.addEventListener('DOMContentLoaded', async () => {
+    const authed = await initAuth();
+    if (!authed) return; // waiting for sign-in redirect
+
     initCanvas();
     initIngestion();
     initChat();
@@ -157,7 +215,7 @@ function scrollToNode(node) {
 
 async function loadGraph() {
     try {
-        const res = await fetch(`${API_BASE}/graph`);
+        const res = await apiFetch(`${API_BASE}/graph`);
         const data = await res.json();
         graphData = data;
         renderGraph(data);
@@ -328,7 +386,7 @@ function getCardCenter(cardEl) {
 
 async function saveNodePosition(nodeId, x, y) {
     try {
-        await fetch(`${API_BASE}/nodes/${nodeId}`, {
+        await apiFetch(`${API_BASE}/nodes/${nodeId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ canvas_x: x, canvas_y: y }),
@@ -397,7 +455,7 @@ async function submitUrl() {
     const cy = (-canvasY + vh / 2) / canvasScale + (Math.random() * 200 - 100);
 
     try {
-        const res = await fetch(`${API_BASE}/ingest`, {
+        const res = await apiFetch(`${API_BASE}/ingest`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url, canvas_x: cx, canvas_y: cy }),
@@ -458,12 +516,12 @@ function pollNodeStatus(nodeId, attempts = 0) {
 
     setTimeout(async () => {
         try {
-            const res = await fetch(`${API_BASE}/ingest/${nodeId}/status`);
+            const res = await apiFetch(`${API_BASE}/ingest/${nodeId}/status`);
             const data = await res.json();
 
             if (data.status === 'done') {
                 // Reload full graph to get edges too
-                const graphRes = await fetch(`${API_BASE}/graph`);
+                const graphRes = await apiFetch(`${API_BASE}/graph`);
                 const graph = await graphRes.json();
                 graphData = graph;
 
@@ -518,7 +576,7 @@ async function openDetail(nodeId) {
     panel.classList.add('open');
 
     try {
-        const res = await fetch(`${API_BASE}/nodes/${nodeId}`);
+        const res = await apiFetch(`${API_BASE}/nodes/${nodeId}`);
         const node = await res.json();
 
         typeBadge.textContent = node.type;
@@ -526,7 +584,7 @@ async function openDetail(nodeId) {
 
         let relatedHTML = '';
         try {
-            const relRes = await fetch(`${API_BASE}/nodes/${nodeId}/related`);
+            const relRes = await apiFetch(`${API_BASE}/nodes/${nodeId}/related`);
             const relData = await relRes.json();
             if (relData.nodes && relData.nodes.length > 0) {
                 relatedHTML = `
@@ -569,7 +627,7 @@ async function openDetail(nodeId) {
 async function deleteNode(nodeId, cardEl) {
     if (!confirm('Delete this node and its connections?')) return;
     try {
-        await fetch(`${API_BASE}/nodes/${nodeId}`, { method: 'DELETE' });
+        await apiFetch(`${API_BASE}/nodes/${nodeId}`, { method: 'DELETE' });
         cardEl.remove();
         delete nodeElements[nodeId];
         graphData.nodes = graphData.nodes.filter(n => n.id !== nodeId);
@@ -643,7 +701,7 @@ async function restoreOrStartSession() {
     if (saved) {
         currentSessionId = saved;
         try {
-            const res = await fetch(`${API_BASE}/chat/history/${saved}`);
+            const res = await apiFetch(`${API_BASE}/chat/history/${saved}`);
             const data = await res.json();
             if (data.messages && data.messages.length > 0) {
                 data.messages.forEach(msg =>
@@ -708,7 +766,7 @@ async function loadNotesList() {
     const list = document.getElementById('notesList');
     list.innerHTML = '<div class="notes-loading">Loading…</div>';
     try {
-        const res = await fetch('/api/notes');
+        const res = await apiFetch('/api/notes');
         const data = await res.json();
         const notes = data.notes || [];
         if (!notes.length) {
@@ -723,7 +781,7 @@ async function loadNotesList() {
                 const id = card.dataset.noteId;
                 btn.disabled = true;
                 try {
-                    const r = await fetch(`/api/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                    const r = await apiFetch(`/api/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' });
                     if (r.ok) {
                         card.remove();
                         if (!list.querySelector('.note-card')) {
@@ -772,7 +830,7 @@ async function loadPeopleList() {
     const list = document.getElementById('peopleList');
     list.innerHTML = '<div class="people-loading">Loading…</div>';
     try {
-        const res = await fetch(`${API_BASE}/people`);
+        const res = await apiFetch(`${API_BASE}/people`);
         const data = await res.json();
         const people = data.people || [];
         if (!people.length) {
@@ -787,7 +845,7 @@ async function loadPeopleList() {
                 const personId = card.dataset.personId;
                 btn.disabled = true;
                 try {
-                    const res = await fetch(`${API_BASE}/people/${encodeURIComponent(personId)}`, { method: 'DELETE' });
+                    const res = await apiFetch(`${API_BASE}/people/${encodeURIComponent(personId)}`, { method: 'DELETE' });
                     if (res.ok) {
                         card.remove();
                         if (!list.querySelector('.person-card')) {
@@ -842,7 +900,7 @@ async function loadConversationHistory() {
     const list = document.getElementById('historyList');
     list.innerHTML = '<div class="history-loading">Loading…</div>';
     try {
-        const res = await fetch(`${API_BASE}/conversations`);
+        const res = await apiFetch(`${API_BASE}/conversations`);
         const data = await res.json();
         const convs = data.conversations || [];
         if (convs.length === 0) {
@@ -900,7 +958,7 @@ async function loadConversation(sessionId) {
     localStorage.setItem('tacit_session_id', sessionId);
     document.getElementById('messages').innerHTML = '';
     try {
-        const res = await fetch(`${API_BASE}/chat/history/${sessionId}`);
+        const res = await apiFetch(`${API_BASE}/chat/history/${sessionId}`);
         const data = await res.json();
         if (data.messages && data.messages.length > 0) {
             data.messages.forEach(msg => addMessage(msg.role, msg.content, false, msg.sources || []));
@@ -932,7 +990,7 @@ async function sendMessage() {
     const loadingId = addLoadingMessage();
 
     try {
-        const res = await fetch(`${API_BASE}/chat`, {
+        const res = await apiFetch(`${API_BASE}/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message, session_id: currentSessionId }),
@@ -1069,7 +1127,7 @@ function initUI() {
 
 async function openSettings() {
     try {
-        const res = await fetch('/api/settings');
+        const res = await apiFetch('/api/settings');
         const d = await res.json();
         document.getElementById('settingName').value = d.user_name || '';
         document.getElementById('settingRole').value = d.user_role || '';
@@ -1088,7 +1146,7 @@ async function saveSettings() {
     btn.textContent = 'Saving…';
     btn.disabled = true;
     try {
-        await fetch('/api/settings', {
+        await apiFetch('/api/settings', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1133,7 +1191,7 @@ function toggleCategory() {
 
 async function loadCategories() {
     try {
-        const res = await fetch(`${API_BASE}/categories`);
+        const res = await apiFetch(`${API_BASE}/categories`);
         const data = await res.json();
         const list = document.getElementById('categoryList');
         list.innerHTML = '';
@@ -1245,7 +1303,7 @@ function autoArrangeByCategory() {
 
 async function loadInsights() {
     try {
-        const res = await fetch(`${API_BASE}/insights`);
+        const res = await apiFetch(`${API_BASE}/insights`);
         const data = await res.json();
         if (data.total_nodes === 0) return;
 
