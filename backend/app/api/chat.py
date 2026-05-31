@@ -123,6 +123,16 @@ async def send_message(
             mode=chat_request.mode
         )
 
+        # Tag conversation with user_id so history is per-user
+        try:
+            from ..db.database import ConversationDB
+            with get_database().session_scope() as s:
+                conv = s.query(ConversationDB).filter_by(id=session_id).first()
+                if conv and not conv.user_id:
+                    conv.user_id = current_user["id"]
+        except Exception:
+            pass
+
         # Kick off background graph processing for any URLs ingested via chat
         graph_service = request.app.state.graph_service
         for action in result.get('actions', []):
@@ -187,15 +197,25 @@ async def new_chat_session():
 
 
 @router.get("/conversations")
-async def list_conversations(request: Request, limit: int = 50):
-    """List all conversations ordered by most recent activity"""
+async def list_conversations(
+    request: Request,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user),
+):
+    """List conversations for the current user ordered by most recent activity"""
     from ..db.database import get_database, ConversationDB, MessageDB
-    from sqlalchemy import desc
+    from sqlalchemy import desc, or_
     db = get_database()
     session = db.get_session()
     try:
         convs = (
             session.query(ConversationDB)
+            .filter(
+                or_(
+                    ConversationDB.user_id == current_user["id"],
+                    ConversationDB.user_id.is_(None),  # legacy rows without user_id
+                )
+            )
             .order_by(desc(ConversationDB.last_activity))
             .limit(limit)
             .all()
