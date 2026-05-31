@@ -20,7 +20,7 @@ async function initAuth() {
             container.id = 'clerk-auth-container';
             container.style.cssText = 'position:fixed;inset:0;z-index:99999;background:var(--bg,#0f1419);display:flex;align-items:center;justify-content:center;';
             document.body.appendChild(container);
-            clerk.openSignIn({ afterSignInUrl: window.location.href });
+            clerk.redirectToSignIn({ redirectUrl: window.location.href });
             return false;
         }
 
