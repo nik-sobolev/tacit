@@ -1124,6 +1124,10 @@ function initUI() {
     document.getElementById('settingsBtn').addEventListener('click', openSettings);
     document.getElementById('settingsCloseBtn').addEventListener('click', closeSettings);
     document.getElementById('settingsSaveBtn').addEventListener('click', saveSettings);
+    document.getElementById('signOutBtn').addEventListener('click', async () => {
+        if (clerkInstance) await clerkInstance.signOut();
+        else window.location.reload();
+    });
     document.getElementById('settingsModal').addEventListener('click', e => {
         if (e.target === document.getElementById('settingsModal')) closeSettings();
     });
