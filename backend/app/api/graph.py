@@ -6,8 +6,10 @@ from pydantic import BaseModel
 from typing import Optional, List
 from sqlalchemy import func
 
-from ..db.database import get_database, NodeDB, EdgeDB, ConversationDB, UserSettingsDB
+from ..db.database import get_database, NodeDB, EdgeDB, ConversationDB, UserSettingsDB, UserDB
+from ..core.auth import get_current_user
 from datetime import datetime
+from fastapi import Depends
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -172,10 +174,16 @@ class LinkRequest(BaseModel):
 
 
 @router.get("/graph")
-async def get_graph(request: Request):
-    """Return all nodes and edges for the canvas."""
+async def get_graph(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return all nodes and edges for the canvas. Also seeds content for new users."""
     try:
         graph_service = request.app.state.graph_service
+        # Upsert user and seed starter content on first canvas load
+        from ..api.chat import _upsert_user
+        _upsert_user(current_user, graph_service=graph_service)
         return graph_service.get_graph()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
