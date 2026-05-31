@@ -66,13 +66,16 @@ def _seed_starter_content(user_id: str, graph_service):
 
 
 def _upsert_user(user: dict, graph_service=None):
-    """Create user record on first login; seed content for brand-new users."""
+    """Create user record on first login; seed content if canvas is empty."""
     db = get_database()
     try:
         with db.session_scope() as s:
             if not s.query(UserDB).filter_by(id=user["id"]).first():
                 s.add(UserDB(id=user["id"], email=user.get("email", "")))
-                if graph_service:
+            # Seed for any user with 0 nodes (new or existing with empty canvas)
+            if graph_service:
+                node_count = s.query(NodeDB).filter_by(user_id=user["id"]).count()
+                if node_count == 0:
                     _seed_starter_content(user["id"], graph_service)
     except Exception:
         pass
