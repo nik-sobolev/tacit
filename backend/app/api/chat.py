@@ -1,25 +1,79 @@
 """Chat API endpoints"""
 
 import asyncio
+import threading
+import uuid as _uuid
+from datetime import datetime as _datetime
 from fastapi import APIRouter, HTTPException, Request, Depends
 from typing import Optional
 import uuid
 
 from ..models.chat import ChatRequest, ChatResponse, ChatMode
 from ..core.auth import get_current_user
-from ..db.database import get_database, UserDB, UserSettingsDB
+from ..db.database import get_database, UserDB, UserSettingsDB, NodeDB
 from ..core.config import TacitConfig
 
 router = APIRouter()
 
+WELCOME_TEXT = """Tacit is your personal second brain. Here's how to get started:
 
-def _upsert_user(user: dict):
-    """Create user record on first login."""
+• Drop any URL in the bar above — YouTube, articles, TikToks, webpages
+• Tacit extracts the content, summarizes it, and places it on your canvas
+• Ask me anything in the chat about what you've saved
+• Paste text in chat to save notes: "save this: [your text]"
+• Click any card to see full content and related nodes
+
+The canvas grows as you add content. Start by adding something you read this week."""
+
+STARTER_URLS = [
+    "https://fs.blog/feynman-technique/",
+    "https://paulgraham.com/read.html",
+]
+
+
+def _seed_starter_content(user_id: str, graph_service):
+    def _seed():
+        try:
+            db = get_database()
+            # Welcome note
+            note_id = str(_uuid.uuid4())
+            with db.session_scope() as s:
+                s.add(NodeDB(
+                    id=note_id, user_id=user_id, type="note",
+                    title="Welcome to Tacit", content=WELCOME_TEXT,
+                    status="processing", canvas_x=100, canvas_y=120,
+                    tags=[], node_meta={}, created_at=_datetime.utcnow(),
+                ))
+            graph_service.process_node(note_id)
+
+            # Starter articles
+            from ..services.ingestion_service import IngestionService
+            svc = IngestionService()
+            for i, url in enumerate(STARTER_URLS):
+                try:
+                    node = svc.ingest_url(url, canvas_x=520 + i * 340, canvas_y=120)
+                    with db.session_scope() as s:
+                        n = s.query(NodeDB).filter_by(id=node.id).first()
+                        if n:
+                            n.user_id = user_id
+                    graph_service.process_node(node.id)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    threading.Thread(target=_seed, daemon=True).start()
+
+
+def _upsert_user(user: dict, graph_service=None):
+    """Create user record on first login; seed content for brand-new users."""
     db = get_database()
     try:
         with db.session_scope() as s:
             if not s.query(UserDB).filter_by(id=user["id"]).first():
                 s.add(UserDB(id=user["id"], email=user.get("email", "")))
+                if graph_service:
+                    _seed_starter_content(user["id"], graph_service)
     except Exception:
         pass
 
@@ -49,7 +103,7 @@ async def send_message(
 ):
     """Send a message to the twin and get a response"""
     try:
-        _upsert_user(current_user)
+        _upsert_user(current_user, graph_service=request.app.state.graph_service)
         engine = request.app.state.engine
 
         # Load per-user config
