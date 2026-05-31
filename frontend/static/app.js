@@ -50,13 +50,35 @@ async function initAuth() {
 function addUserMenuToHeader(clerk) {
     const actions = document.querySelector('.header-actions');
     if (!actions) return;
+
+    // Sync Clerk name to Tacit settings
+    const firstName = clerk.user.firstName || '';
+    const lastName = clerk.user.lastName || '';
+    const fullName = [firstName, lastName].filter(Boolean).join(' ') || clerk.user.primaryEmailAddress?.emailAddress?.split('@')[0] || 'User';
+    apiFetch('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ user_name: fullName })
+    }).catch(() => {});
+
+    // User avatar button
     const userBtn = document.createElement('button');
     userBtn.className = 'icon-btn';
-    userBtn.title = clerk.user.primaryEmailAddress?.emailAddress || 'Account';
-    userBtn.textContent = (clerk.user.firstName || '?')[0].toUpperCase();
+    userBtn.title = fullName;
+    userBtn.textContent = (firstName || fullName || '?')[0].toUpperCase();
     userBtn.style.fontWeight = '700';
     userBtn.addEventListener('click', () => clerk.openUserProfile());
     actions.insertBefore(userBtn, actions.firstChild);
+
+    // Sign out button
+    const signOutBtn = document.createElement('button');
+    signOutBtn.className = 'icon-btn';
+    signOutBtn.title = 'Sign out';
+    signOutBtn.textContent = '↩';
+    signOutBtn.style.fontSize = '16px';
+    signOutBtn.addEventListener('click', async () => {
+        if (confirm('Sign out?')) await clerk.signOut();
+    });
+    actions.insertBefore(signOutBtn, actions.firstChild);
 }
 
 // Authenticated fetch — wraps all API calls with Bearer token
@@ -1131,56 +1153,6 @@ function initUI() {
     document.getElementById('closeDetailBtn').addEventListener('click', () => {
         document.getElementById('nodeDetailPanel').classList.remove('open');
     });
-    document.getElementById('settingsBtn').addEventListener('click', openSettings);
-    document.getElementById('settingsCloseBtn').addEventListener('click', closeSettings);
-    document.getElementById('settingsSaveBtn').addEventListener('click', saveSettings);
-    document.getElementById('signOutBtn').addEventListener('click', async () => {
-        if (clerkInstance) await clerkInstance.signOut();
-        else window.location.reload();
-    });
-    document.getElementById('settingsModal').addEventListener('click', e => {
-        if (e.target === document.getElementById('settingsModal')) closeSettings();
-    });
-}
-
-async function openSettings() {
-    try {
-        const res = await apiFetch('/api/settings');
-        const d = await res.json();
-        document.getElementById('settingName').value = d.user_name || '';
-        document.getElementById('settingRole').value = d.user_role || '';
-        document.getElementById('settingOrg').value = d.organization || '';
-    } catch {}
-    document.getElementById('settingsModal').style.display = 'flex';
-    document.getElementById('settingName').focus();
-}
-
-function closeSettings() {
-    document.getElementById('settingsModal').style.display = 'none';
-}
-
-async function saveSettings() {
-    const btn = document.getElementById('settingsSaveBtn');
-    btn.textContent = 'Saving…';
-    btn.disabled = true;
-    try {
-        await apiFetch('/api/settings', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                user_name: document.getElementById('settingName').value.trim(),
-                user_role: document.getElementById('settingRole').value.trim(),
-                organization: document.getElementById('settingOrg').value.trim(),
-            })
-        });
-        closeSettings();
-        showToast('Settings saved', 'success');
-    } catch {
-        showToast('Failed to save settings', 'error');
-    } finally {
-        btn.textContent = 'Save';
-        btn.disabled = false;
-    }
 }
 
 function toggleChat() {

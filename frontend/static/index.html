@@ -35,7 +35,7 @@
                 <button id="toggleChatBtn" class="icon-btn" title="Toggle Chat">💬</button>
                 <button id="toggleCategoryBtn" class="icon-btn" title="Categories">Tags</button>
                 <button id="resetViewBtn" class="icon-btn" title="Reset View">⊙</button>
-                <button id="settingsBtn" class="icon-btn" title="Settings">⚙</button>
+
             </div>
         </header>
 
@@ -155,33 +155,6 @@
     <!-- Toast -->
     <div id="toast" class="toast"></div>
 
-    <!-- Settings Modal -->
-    <div id="settingsModal" class="modal-overlay" style="display:none">
-        <div class="modal-card">
-            <div class="modal-header">
-                <span class="modal-title">Settings</span>
-                <button id="settingsCloseBtn" class="modal-close">✕</button>
-            </div>
-            <div class="modal-body">
-                <div class="settings-field">
-                    <label class="settings-label">Your Name</label>
-                    <input id="settingName" type="text" class="settings-input" placeholder="e.g. Alex">
-                </div>
-                <div class="settings-field">
-                    <label class="settings-label">Role</label>
-                    <input id="settingRole" type="text" class="settings-input" placeholder="e.g. FDE">
-                </div>
-                <div class="settings-field">
-                    <label class="settings-label">Organization</label>
-                    <input id="settingOrg" type="text" class="settings-input" placeholder="e.g. Acme Corp">
-                </div>
-            </div>
-            <div class="modal-footer" style="justify-content:space-between">
-                <button id="signOutBtn" class="chat-hdr-btn" style="color:#ff6b6b">Sign out</button>
-                <button id="settingsSaveBtn" class="ingest-btn">Save</button>
-            </div>
-        </div>
-    </div>
 
     <!-- Markdown -->
     <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
