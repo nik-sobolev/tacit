@@ -9,27 +9,31 @@ let clerkInstance = null;
 let getAuthToken = async () => null; // overridden after Clerk loads
 
 async function initAuth() {
+    // Hide app until auth is confirmed
+    document.querySelector('.app-root').style.visibility = 'hidden';
     try {
         const clerk = new window.Clerk(window.CLERK_PUBLISHABLE_KEY);
         await clerk.load();
         clerkInstance = clerk;
 
         if (!clerk.user) {
-            // Show sign-in UI covering the whole app
-            const container = document.createElement('div');
-            container.id = 'clerk-auth-container';
-            container.style.cssText = 'position:fixed;inset:0;z-index:99999;background:var(--bg,#0f1419);display:flex;align-items:center;justify-content:center;';
-            document.body.appendChild(container);
-            clerk.redirectToSignIn({ redirectUrl: window.location.href });
+            await clerk.redirectToSignIn({ redirectUrl: window.location.href });
             return false;
         }
 
+        document.querySelector('.app-root').style.visibility = 'visible';
         getAuthToken = () => clerk.session.getToken();
         addUserMenuToHeader(clerk);
         return true;
     } catch (e) {
-        console.warn('[Tacit] Clerk auth failed, running without auth:', e);
-        return true; // fail open for local dev
+        // Show error — don't fail open in production
+        document.body.style.visibility = 'visible';
+        document.body.innerHTML = `<div style="color:#e6edf3;padding:60px;font-family:system-ui;background:#0f1419;min-height:100vh">
+            <h2 style="color:#c05621">Authentication error</h2>
+            <p style="color:#8b949e">${e.message}</p>
+            <p style="color:#6e7681;font-size:12px">${e.stack || ''}</p>
+        </div>`;
+        return false;
     }
 }
 
