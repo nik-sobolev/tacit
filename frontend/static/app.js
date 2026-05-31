@@ -8,27 +8,13 @@ const API_BASE = '/api';
 let clerkInstance = null;
 let getAuthToken = async () => null; // overridden after Clerk loads
 
-async function waitForClerk(timeout = 5000) {
-    if (window.Clerk) return window.Clerk;
-    return new Promise((resolve) => {
-        const end = Date.now() + timeout;
-        const check = () => {
-            if (window.Clerk) return resolve(window.Clerk);
-            if (Date.now() > end) return resolve(null);
-            setTimeout(check, 50);
-        };
-        check();
-    });
-}
-
 async function initAuth() {
     // Hide app until auth is confirmed
     document.querySelector('.app-root').style.visibility = 'hidden';
     try {
-        const ClerkClass = await waitForClerk();
-        if (!ClerkClass) throw new Error('Clerk JS failed to load from CDN');
-        const clerk = new ClerkClass(window.CLERK_PUBLISHABLE_KEY);
-        await clerk.load();
+        // Clerk v5 CDN: window.Clerk is the instance, call load() with publishableKey
+        await window.Clerk.load({ publishableKey: window.CLERK_PUBLISHABLE_KEY });
+        const clerk = window.Clerk;
         clerkInstance = clerk;
 
         if (!clerk.user) {
