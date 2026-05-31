@@ -11,7 +11,7 @@ logger = structlog.get_logger()
 
 CLERK_FRONTEND_API = os.getenv(
     "CLERK_FRONTEND_API",
-    "https://ultimate-stinkbug-53.clerk.accounts.dev"
+    "https://clerk.trytacit.app"
 )
 JWKS_URL = f"{CLERK_FRONTEND_API}/.well-known/jwks.json"
 
