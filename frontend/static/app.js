@@ -9,12 +9,12 @@ let clerkInstance = null;
 let getAuthToken = async () => null; // overridden after Clerk loads
 
 async function initAuth() {
-    // Hide app until auth is confirmed
     document.querySelector('.app-root').style.visibility = 'hidden';
     try {
-        // Clerk v5 CDN: window.Clerk is the instance, call load() with publishableKey
-        await window.Clerk.load({ publishableKey: window.CLERK_PUBLISHABLE_KEY });
-        const clerk = window.Clerk;
+        const ClerkCtor = await window._clerkReady;
+        if (!ClerkCtor) throw new Error('Clerk JS failed to load from CDN');
+        const clerk = typeof ClerkCtor === 'function' ? new ClerkCtor(window.CLERK_PUBLISHABLE_KEY) : ClerkCtor;
+        await clerk.load({ publishableKey: window.CLERK_PUBLISHABLE_KEY });
         clerkInstance = clerk;
 
         if (!clerk.user) {
