@@ -11,12 +11,6 @@ let getAuthToken = async () => null; // overridden after Clerk loads
 async function initAuth() {
     document.querySelector('.app-root').style.visibility = 'hidden';
     try {
-        if (window.LOCAL_MODE) {
-            document.querySelector('.app-root').style.visibility = 'visible';
-            getAuthToken = async () => null;
-            return true;
-        }
-
         // Clerk loads async from clerk.trytacit.app — wait for window load then use global Clerk
         await new Promise(resolve => {
             if (document.readyState === 'complete') resolve();
