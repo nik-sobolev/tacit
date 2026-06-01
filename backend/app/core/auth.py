@@ -42,8 +42,13 @@ def _verify_token(token: str) -> dict:
     return payload
 
 
+LOCAL_MODE = not os.getenv("CLERK_SECRET_KEY")
+
+
 async def get_current_user(request: Request) -> dict:
     """Extract and verify Clerk JWT from Authorization header."""
+    if LOCAL_MODE:
+        return {"id": "local-user", "email": "local@localhost"}
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing token")

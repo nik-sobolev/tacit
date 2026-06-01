@@ -114,7 +114,14 @@ async def root():
     html_file = frontend_path / "index.html"
 
     if html_file.exists():
-        return html_file.read_text()
+        html = html_file.read_text()
+        if not os.getenv("CLERK_SECRET_KEY"):
+            # Strip Clerk scripts and inject local mode flag
+            import re
+            html = re.sub(r'<script[^>]*clerk[^>]*>.*?</script>', '', html, flags=re.IGNORECASE | re.DOTALL)
+            html = re.sub(r'<script[^>]*data-clerk[^>]*></script>', '', html, flags=re.IGNORECASE)
+            html = html.replace('<head>', '<head>\n    <script>window.LOCAL_MODE = true;</script>', 1)
+        return html
 
     # Temporary landing page if frontend not ready
     return """

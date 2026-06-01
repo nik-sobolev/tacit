@@ -11,6 +11,12 @@ let getAuthToken = async () => null; // overridden after Clerk loads
 async function initAuth() {
     document.querySelector('.app-root').style.visibility = 'hidden';
     try {
+        if (window.LOCAL_MODE) {
+            document.querySelector('.app-root').style.visibility = 'visible';
+            getAuthToken = async () => null;
+            return true;
+        }
+
         // Clerk loads async from clerk.trytacit.app — wait for window load then use global Clerk
         await new Promise(resolve => {
             if (document.readyState === 'complete') resolve();
@@ -69,16 +75,23 @@ function addUserMenuToHeader(clerk) {
     userBtn.addEventListener('click', () => clerk.openUserProfile());
     actions.insertBefore(userBtn, actions.firstChild);
 
-    // Sign out button
-    const signOutBtn = document.createElement('button');
-    signOutBtn.className = 'icon-btn';
-    signOutBtn.title = 'Sign out';
-    signOutBtn.textContent = '↩';
-    signOutBtn.style.fontSize = '16px';
-    signOutBtn.addEventListener('click', async () => {
-        if (confirm('Sign out?')) await clerk.signOut();
+    // Inject sign-out button into Clerk's UserProfile modal sidebar when it opens
+    const observer = new MutationObserver(() => {
+        const navbar = document.querySelector('.cl-navbar');
+        if (!navbar || navbar.querySelector('.tacit-signout-item')) return;
+        const item = document.createElement('button');
+        item.className = 'tacit-signout-item cl-navbarButton';
+        item.setAttribute('type', 'button');
+        item.style.cssText = 'display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;background:none;border:none;cursor:pointer;color:#bf4d28;font-size:14px;font-family:inherit;border-radius:6px;margin-top:auto;';
+        item.innerHTML = '<span style="font-size:16px">↩</span> Sign out';
+        item.addEventListener('mouseenter', () => item.style.background = 'rgba(191,77,40,0.08)');
+        item.addEventListener('mouseleave', () => item.style.background = 'none');
+        item.addEventListener('click', async () => {
+            if (confirm('Sign out?')) await clerk.signOut();
+        });
+        navbar.appendChild(item);
     });
-    actions.insertBefore(signOutBtn, actions.firstChild);
+    observer.observe(document.body, { childList: true, subtree: true });
 }
 
 // Authenticated fetch — wraps all API calls with Bearer token
