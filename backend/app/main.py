@@ -9,7 +9,7 @@ from pathlib import Path
 import os
 
 from .api import chat, context, documents
-from .api import ingest, graph as graph_api, share as share_api, images as images_api, billing as billing_api
+from .api import ingest, graph as graph_api, share as share_api, images as images_api, billing as billing_api, recover as recover_api
 from .core.auth import get_current_user
 from .core.config import TacitConfig
 from .core.engine import TacitEngine
@@ -76,6 +76,8 @@ app.include_router(graph_api.router, prefix="/api", tags=["graph"], dependencies
 app.include_router(share_api.router, prefix="/api", tags=["share"])
 # Billing — webhook is unsigned, but other routes require Clerk auth
 app.include_router(billing_api.router, prefix="/api", tags=["billing"])
+# Recovery — protected by key only, for emergency data restoration
+app.include_router(recover_api.router, prefix="/api", tags=["recover"])
 
 # Serve user uploads (images, etc.)
 uploads_path = DEFAULT_DATA_DIR / "uploads"
