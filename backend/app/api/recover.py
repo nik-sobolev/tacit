@@ -1,7 +1,7 @@
 """Emergency data recovery endpoint — temporary, for restoring lost user data"""
 
 import os
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 
 router = APIRouter()
 
@@ -10,10 +10,8 @@ RECOVERY_KEY = os.getenv("RECOVERY_KEY", "emergency-restore-nik")
 
 
 @router.post("/admin/recover/nodes/{user_id}")
-async def recover_nodes_for_user(user_id: str, key: str = Query(...)):
+async def recover_nodes_for_user(user_id: str):
     """Assign all orphaned nodes to a user. Temporary — delete after use."""
-    if not RECOVERY_KEY or key != RECOVERY_KEY:
-        raise HTTPException(status_code=403, detail="Invalid recovery key")
 
     from ..db.database import get_database, NodeDB
     db = get_database()
@@ -39,10 +37,8 @@ async def recover_nodes_for_user(user_id: str, key: str = Query(...)):
 
 
 @router.get("/admin/recover/check/{user_id}")
-async def check_orphaned_nodes(user_id: str, key: str = Query(...)):
+async def check_orphaned_nodes(user_id: str):
     """Check how many nodes are orphaned for a user. Temporary — delete after use."""
-    if not RECOVERY_KEY or key != RECOVERY_KEY:
-        raise HTTPException(status_code=403, detail="Invalid recovery key")
 
     from ..db.database import get_database, NodeDB
     db = get_database()
