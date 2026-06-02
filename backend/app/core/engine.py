@@ -117,7 +117,8 @@ class TacitEngine:
         self,
         session_id: str,
         user_message: str,
-        mode: Optional[ChatMode] = None
+        mode: Optional[ChatMode] = None,
+        user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Process a user message and generate twin response.
@@ -126,10 +127,16 @@ class TacitEngine:
             session_id: Session identifier
             user_message: Message from user
             mode: Optional chat mode (general, coaching, query)
+            user_id: Optional Clerk user ID for usage tracking
 
         Returns:
             Dict with response, sources, and metadata
         """
+        # Check token limit before processing
+        if user_id:
+            from .usage import check_limit
+            check_limit(user_id)
+
         # Ensure a DB record exists for this session
         self._ensure_conversation(session_id)
 
@@ -174,12 +181,17 @@ class TacitEngine:
         enable_ingest_tool = True  # URL + note tools always available; Claude decides when to call each
 
         # Generate response
-        response_text, actions = self._generate_response(
+        response_text, actions, usage = self._generate_response(
             system_prompt,
             self.conversations[session_id],
             enable_canvas_tools=enable_canvas_tools,
             enable_ingest_tool=enable_ingest_tool,
         )
+
+        # Record token usage
+        if user_id and usage:
+            from .usage import record_usage
+            record_usage(user_id, usage.input_tokens, usage.output_tokens)
 
         # Persist + cache the assistant response
         mode_str = mode.value if hasattr(mode, "value") else str(mode)
@@ -1170,7 +1182,7 @@ The user is looking for specific information from their knowledge base.
         conversation: List[Dict[str, Any]],
         enable_canvas_tools: bool = False,
         enable_ingest_tool: bool = False,
-    ) -> Tuple[str, List[Dict]]:
+    ) -> Tuple[str, List[Dict], Any]:
         messages = [
             {"role": msg["role"], "content": msg["content"]}
             for msg in conversation
@@ -1178,6 +1190,7 @@ The user is looking for specific information from their knowledge base.
         ]
 
         actions: List[Dict] = []
+        last_usage = None
 
         # People + search always enabled; canvas and ingest tools conditionally
         tools = list(self._PEOPLE_TOOLS) + list(self._SEARCH_TOOLS)
@@ -1195,11 +1208,12 @@ The user is looking for specific information from their knowledge base.
                     tools=tools,
                     tool_choice={"type": "auto"}
                 )
+                last_usage = response.usage
 
                 if response.stop_reason != "tool_use":
                     # Extract text from response content
                     text_blocks = [b.text for b in response.content if hasattr(b, "text")]
-                    return " ".join(text_blocks) if text_blocks else "", actions
+                    return " ".join(text_blocks) if text_blocks else "", actions, last_usage
 
                 # Append assistant turn (with tool_use blocks)
                 tool_messages.append({"role": "assistant", "content": response.content})
@@ -1218,12 +1232,13 @@ The user is looking for specific information from their knowledge base.
                 tool_messages.append({"role": "user", "content": tool_results})
 
             # Fallback if loop exhausted
-            return "I wasn't able to complete that action. Please try again.", actions
+            return "I wasn't able to complete that action. Please try again.", actions, last_usage
 
         except Exception as e:
             logger.error("claude_api_error", error=str(e))
             return (
                 "I apologize, but I'm having a technical issue at the moment. "
                 "Could you please try rephrasing your question?",
-                actions
+                actions,
+                last_usage
             )

@@ -67,6 +67,19 @@ class UserDB(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class UserUsageDB(Base):
+    """Token usage tracking for billing"""
+    __tablename__ = "user_usage"
+
+    user_id                = Column(String, primary_key=True)
+    plan                   = Column(String(20), default="free")   # "free" | "pro"
+    tokens_used            = Column(Integer, default=0)
+    period_start           = Column(DateTime, default=datetime.utcnow)
+    stripe_customer_id     = Column(String, nullable=True)
+    stripe_subscription_id = Column(String, nullable=True)
+    updated_at             = Column(DateTime, default=datetime.utcnow)
+
+
 class NodeDB(Base):
     """Canvas node - any piece of ingested content"""
     __tablename__ = "nodes"

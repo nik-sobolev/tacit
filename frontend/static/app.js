@@ -162,6 +162,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initChatResize();
     initUI();
     initCategorySidebar();
+    await loadUsageMeter();
     await restoreOrStartSession();
     await loadGraph();
     await loadCategories();
@@ -511,6 +512,12 @@ async function submitUrl() {
             body: JSON.stringify({ url, canvas_x: cx, canvas_y: cy }),
         });
 
+        if (res.status === 402) {
+            showToast('Token limit reached. Upgrade to Pro for $9/mo.', 'error');
+            show402Modal();
+            await loadUsageMeter();
+            throw new Error('Token limit reached');
+        }
         if (!res.ok) throw new Error(`Server error: ${res.status}`);
         const data = await res.json();
 
@@ -713,6 +720,80 @@ async function deleteNode(nodeId, cardEl) {
     } catch (e) {
         showToast('Failed to delete node', 'error');
     }
+}
+
+// ==================== BILLING ====================
+
+async function loadUsageMeter() {
+    try {
+        const res = await apiFetch(`${API_BASE}/billing/status`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const meter = document.getElementById('usageMeter');
+        const text = document.getElementById('usageText');
+
+        const pct = data.pct_used || 0;
+        const limit = data.tokens_limit || 100000;
+        const used = data.tokens_used || 0;
+        const formatted = `${Math.round(used / 1000)}k / ${Math.round(limit / 1000)}k`;
+        text.textContent = formatted;
+        meter.style.display = 'block';
+
+        // Color based on usage
+        meter.classList.remove('near-limit', 'at-limit');
+        if (pct >= 95) {
+            meter.classList.add('at-limit');
+        } else if (pct >= 80) {
+            meter.classList.add('near-limit');
+        }
+    } catch (e) {
+        console.error('[Tacit] loadUsageMeter error:', e);
+    }
+}
+
+function show402Modal() {
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
+        z-index: 10000;
+    `;
+    modal.innerHTML = `
+        <div style="
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 12px; padding: 24px; max-width: 400px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        ">
+            <h2 style="margin: 0 0 12px 0; color: var(--text); font-size: 18px;">Token Limit Reached</h2>
+            <p style="margin: 0 0 20px 0; color: var(--text-secondary); font-size: 14px;">
+                You've used your monthly token allowance. Upgrade to Pro for $9/mo to continue.
+            </p>
+            <div style="display: flex; gap: 12px;">
+                <button id="upgradeBtn" style="
+                    flex: 1; padding: 10px; background: #bf4d28; color: white;
+                    border: none; border-radius: 6px; cursor: pointer; font-weight: 500;
+                ">Go Pro</button>
+                <button id="closeModal" style="
+                    flex: 1; padding: 10px; background: var(--surface-hover); color: var(--text);
+                    border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+                ">Cancel</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    document.getElementById('upgradeBtn').addEventListener('click', async () => {
+        try {
+            const res = await apiFetch(`${API_BASE}/billing/checkout`, { method: 'POST' });
+            if (res.ok) {
+                const data = await res.json();
+                window.location = data.url;
+            }
+        } catch (e) {
+            showToast('Failed to open checkout', 'error');
+        }
+    });
+    document.getElementById('closeModal').addEventListener('click', () => modal.remove());
 }
 
 // ==================== CHAT ====================
@@ -1069,6 +1150,12 @@ async function sendMessage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message, session_id: currentSessionId }),
         });
+        if (res.status === 402) {
+            removeMessage(loadingId);
+            show402Modal();
+            await loadUsageMeter();
+            return;
+        }
         if (!res.ok) throw new Error(`Server error: ${res.status}`);
         const data = await res.json();
         removeMessage(loadingId);

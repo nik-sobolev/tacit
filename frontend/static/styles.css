@@ -165,6 +165,25 @@ body {
 
 #toggleCategoryBtn { width: auto; padding: 0 10px; font-size: 12px; font-weight: 500; }
 
+.usage-meter {
+    font-size: 12px;
+    color: var(--text-secondary);
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    white-space: nowrap;
+}
+
+.usage-meter.near-limit {
+    color: #ff9800;
+    border-color: #ff9800;
+}
+
+.usage-meter.at-limit {
+    color: #f44336;
+    border-color: #f44336;
+}
+
 /* ==================== CATEGORY SIDEBAR (right overlay) ==================== */
 
 .category-sidebar {

@@ -204,6 +204,11 @@ Rules:
 - connections: only include if there are genuinely related existing nodes (strength 0.6-1.0)
 - Return ONLY the JSON object, no other text"""
 
+        # Check token limit before calling Claude
+        if node.user_id:
+            from ..core.usage import check_limit
+            check_limit(node.user_id)
+
         try:
             response = self.client.messages.create(
                 model=self.model,
@@ -211,6 +216,12 @@ Rules:
                 messages=[{"role": "user", "content": prompt}]
             )
             text = response.content[0].text.strip()
+
+            # Record token usage
+            if node.user_id and response.usage:
+                from ..core.usage import record_usage
+                record_usage(node.user_id, response.usage.input_tokens, response.usage.output_tokens)
+
             # Strip markdown code blocks if present
             if text.startswith("```"):
                 text = re.sub(r"^```(?:json)?\n?", "", text)

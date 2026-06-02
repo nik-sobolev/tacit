@@ -120,7 +120,8 @@ async def send_message(
         result = engine.process_message(
             session_id=session_id,
             user_message=chat_request.message,
-            mode=chat_request.mode
+            mode=chat_request.mode,
+            user_id=current_user["id"]
         )
 
         # Tag conversation with user_id so history is per-user
