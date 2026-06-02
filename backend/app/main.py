@@ -9,12 +9,13 @@ from pathlib import Path
 import os
 
 from .api import chat, context, documents
-from .api import ingest, graph as graph_api, share as share_api
+from .api import ingest, graph as graph_api, share as share_api, images as images_api
 from .core.auth import get_current_user
 from .core.config import TacitConfig
 from .core.engine import TacitEngine
 from .services.ingestion_service import IngestionService
 from .services.graph_service import GraphService
+from .db.database import DEFAULT_DATA_DIR
 
 # Configure logging
 structlog.configure(
@@ -68,10 +69,16 @@ auth_dep = [Depends(get_current_user)]
 app.include_router(chat.router, prefix="/api", tags=["chat"], dependencies=auth_dep)
 app.include_router(context.router, prefix="/api", tags=["context"], dependencies=auth_dep)
 app.include_router(documents.router, prefix="/api", tags=["documents"], dependencies=auth_dep)
+app.include_router(images_api.router, prefix="/api", tags=["images"], dependencies=auth_dep)
 app.include_router(ingest.router, prefix="/api", tags=["ingest"], dependencies=auth_dep)
 app.include_router(graph_api.router, prefix="/api", tags=["graph"], dependencies=auth_dep)
 # Share tokens are public (unauthenticated by design)
 app.include_router(share_api.router, prefix="/api", tags=["share"])
+
+# Serve user uploads (images, etc.)
+uploads_path = DEFAULT_DATA_DIR / "uploads"
+uploads_path.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(uploads_path)), name="uploads")
 
 # Serve frontend
 frontend_path = Path(__file__).parent.parent.parent / "frontend" / "static"

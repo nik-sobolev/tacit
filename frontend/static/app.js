@@ -450,10 +450,17 @@ function initIngestion() {
         if (e.key === 'Enter') submitUrl();
     });
 
-    // Allow dropping URLs directly
+    // Allow dropping URLs and images
     document.addEventListener('dragover', (e) => e.preventDefault());
     document.addEventListener('drop', (e) => {
         e.preventDefault();
+        // Check for image files first
+        const imageFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+        if (imageFiles.length) {
+            imageFiles.forEach(uploadImageFile);
+            return;
+        }
+        // Existing URL handling
         const text = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text/uri-list');
         if (text && text.startsWith('http')) {
             document.getElementById('urlInput').value = text;
@@ -551,6 +558,30 @@ async function submitUrl() {
         input.disabled = false;
         document.getElementById('ingestBtn').disabled = false;
         input.focus();
+    }
+}
+
+async function uploadImageFile(file) {
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const token = await window.Clerk.session.getToken();
+        const resp = await fetch('/api/images/upload', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData,
+        });
+        if (!resp.ok) {
+            const err = await resp.json();
+            showToast('Failed to upload image: ' + (err.detail || 'Unknown error'), 'error');
+            return;
+        }
+        const node = await resp.json();
+        addNodeToCanvas(node);
+        showToast('Image added to canvas', 'success');
+    } catch (e) {
+        showToast('Failed to upload image: ' + e.message, 'error');
+        console.error('[Tacit] image upload error:', e);
     }
 }
 
@@ -1344,6 +1375,7 @@ function getTypeIcon(type) {
         note: '✎',
         document: '📄',
         text: '✎',
+        image: '🖼',
     };
     return icons[type] || '◉';
 }

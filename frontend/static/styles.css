@@ -797,6 +797,7 @@ body {
 .card-note     { border-top: 2px solid var(--accent); }
 .card-document { border-top: 2px solid #7c5cbf; }
 .card-text     { border-top: 2px solid var(--accent); }
+.card-image    { border-top: 2px solid #f39c12; }
 
 .card-header {
     display: flex;
