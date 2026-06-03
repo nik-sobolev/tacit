@@ -301,8 +301,9 @@ class Database:
 _db_instance = None
 
 
-def get_database(database_url: str = DEFAULT_DATABASE_URL) -> Database:
+def get_database(database_url: str = None) -> Database:
     global _db_instance
     if _db_instance is None:
-        _db_instance = Database(database_url)
+        url = database_url or os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
+        _db_instance = Database(url)
     return _db_instance
