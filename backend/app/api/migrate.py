@@ -54,20 +54,20 @@ async def migrate(request: Request, body: MigrateRequest):
             skipped += 1
             continue
         try:
-            node = await loop.run_in_executor(
-                None,
-                lambda u=url, idx=i: ingestion_service.ingest_url(
+            def _ingest_and_tag(u, idx):
+                n = ingestion_service.ingest_url(
                     url=u,
                     canvas_x=100.0 + (idx % 5) * 320,
                     canvas_y=100.0 + (idx // 5) * 260,
-                ),
-            )
+                )
+                # Set user_id immediately in same thread
+                with db.session_scope() as s:
+                    db_node = s.query(NodeDB).filter_by(id=n.id).first()
+                    if db_node:
+                        db_node.user_id = MIGRATION_USER_ID
+                return n
 
-            # Set user_id on the node
-            with db.session_scope() as session:
-                db_node = session.query(NodeDB).filter_by(id=node.id).first()
-                if db_node:
-                    db_node.user_id = MIGRATION_USER_ID
+            node = await loop.run_in_executor(None, _ingest_and_tag, url, i)
 
             def _process(node_id):
                 try:
