@@ -59,7 +59,7 @@ async def check_orphaned_nodes(user_id: str):
 
 @router.post("/admin/recover/reprocess/{user_id}")
 async def reprocess_failed_nodes(request: Request, user_id: str):
-    """Reset all error nodes for a user and re-trigger processing."""
+    """Reset and synchronously reprocess all error nodes for a user."""
     import asyncio
     from ..db.database import get_database, NodeDB
 
@@ -68,19 +68,19 @@ async def reprocess_failed_nodes(request: Request, user_id: str):
 
     with db.session_scope() as session:
         failed = session.query(NodeDB).filter_by(user_id=user_id, status="error").all()
-        node_ids = []
+        node_ids = [n.id for n in failed]
         for node in failed:
             node.status = "pending"
             node.error_message = None
-            node_ids.append(node.id)
 
+    processed = 0
+    errors = 0
     loop = asyncio.get_event_loop()
     for node_id in node_ids:
-        def _process(nid):
-            try:
-                graph_service.process_node(nid)
-            except Exception:
-                pass
-        loop.run_in_executor(None, _process, node_id)
+        try:
+            await loop.run_in_executor(None, graph_service.process_node, node_id)
+            processed += 1
+        except Exception as e:
+            errors += 1
 
-    return {"reprocessing": len(node_ids), "node_ids": node_ids}
+    return {"processed": processed, "errors": errors, "total": len(node_ids)}
