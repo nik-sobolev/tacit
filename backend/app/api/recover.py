@@ -1,7 +1,7 @@
 """Emergency data recovery endpoint — temporary, for restoring lost user data"""
 
 import os
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 router = APIRouter()
 
