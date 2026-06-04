@@ -72,8 +72,9 @@ async def check_orphaned_nodes(user_id: str):
 
 @router.post("/admin/recover/reprocess/{user_id}")
 async def reprocess_failed_nodes(request: Request, user_id: str):
-    """Reset and synchronously reprocess all error nodes for a user."""
+    """Reset failed nodes to pending and process them in background."""
     import asyncio
+    import threading
     from ..db.database import get_database, NodeDB
 
     db = get_database()
@@ -86,14 +87,13 @@ async def reprocess_failed_nodes(request: Request, user_id: str):
             node.status = "pending"
             node.error_message = None
 
-    processed = 0
-    errors = 0
-    loop = asyncio.get_event_loop()
-    for node_id in node_ids:
-        try:
-            await loop.run_in_executor(None, graph_service.process_node, node_id)
-            processed += 1
-        except Exception as e:
-            errors += 1
+    def _process_all():
+        for node_id in node_ids:
+            try:
+                graph_service.process_node(node_id)
+            except Exception:
+                pass
 
-    return {"processed": processed, "errors": errors, "total": len(node_ids)}
+    threading.Thread(target=_process_all, daemon=True).start()
+
+    return {"queued": len(node_ids), "message": "Processing in background — refresh canvas in 2-3 minutes"}

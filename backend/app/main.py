@@ -205,26 +205,50 @@ async def startup_event():
     (DEFAULT_DATA_DIR / "uploads").mkdir(parents=True, exist_ok=True)
     (DEFAULT_DATA_DIR / "chroma").mkdir(parents=True, exist_ok=True)
 
-    # Mark any nodes stuck in "processing" from a previous run as errors
+    # Reset interrupted nodes back to pending (don't mark as error — they'll be retried)
     _recover_stuck_nodes()
 
     # Re-index any processed nodes that are missing from ChromaDB
     _reindex_missing_nodes()
 
+    # Process any pending nodes in background (handles restart-interrupted nodes)
+    import threading
+    threading.Thread(target=_process_pending_nodes, daemon=True).start()
+
 
 def _recover_stuck_nodes():
-    """Mark any nodes left in processing/pending state from a previous run as errors."""
+    """Reset nodes stuck in processing state back to pending so they get retried."""
     from .db.database import NodeDB, get_database
     try:
         with get_database().session_scope() as session:
-            stuck = session.query(NodeDB).filter(NodeDB.status.in_(["processing", "pending"])).all()
+            stuck = session.query(NodeDB).filter(NodeDB.status == "processing").all()
             if stuck:
                 for node in stuck:
-                    node.status = "error"
-                    node.error_message = "Processing interrupted by server restart"
-                logger.info("recovered_stuck_nodes", count=len(stuck))
+                    node.status = "pending"
+                    node.error_message = None
+                logger.info("recovered_stuck_nodes_to_pending", count=len(stuck))
     except Exception as e:
         logger.error("recover_stuck_nodes_failed", error=str(e))
+
+
+def _process_pending_nodes():
+    """Process all pending nodes in background after startup."""
+    from .db.database import NodeDB, get_database
+    import time
+    time.sleep(3)  # Let server fully start first
+    try:
+        with get_database().session_scope() as session:
+            pending = session.query(NodeDB).filter(NodeDB.status == "pending").all()
+            node_ids = [n.id for n in pending]
+        if node_ids:
+            logger.info("processing_pending_nodes_on_startup", count=len(node_ids))
+            for node_id in node_ids:
+                try:
+                    graph_service.process_node(node_id)
+                except Exception as e:
+                    logger.error("startup_process_node_failed", node_id=node_id, error=str(e))
+    except Exception as e:
+        logger.error("process_pending_nodes_failed", error=str(e))
 
 
 def _reindex_missing_nodes():
