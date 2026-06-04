@@ -54,12 +54,19 @@ async def check_orphaned_nodes(user_id: str):
         # All distinct user_ids in DB
         all_users = [r[0] for r in session.query(NodeDB.user_id).distinct().all()]
 
+    # Sample error messages from failed nodes
+    error_samples = [
+        {"id": n.id, "title": n.title, "error": n.error_message}
+        for n in session.query(NodeDB).filter_by(user_id=user_id, status="error").limit(5).all()
+    ]
+
     return {
         "user_id": user_id,
         "orphaned_nodes": orphaned,
         "assigned_to_user": user_nodes,
         "status_breakdown": {s: c for s, c in statuses},
         "all_user_ids_in_db": all_users,
+        "error_samples": error_samples,
     }
 
 
