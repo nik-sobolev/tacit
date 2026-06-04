@@ -47,19 +47,10 @@ class GraphService:
             existing_categories = self._get_existing_categories(session)
             agent_result = self._run_agent(node, existing_summary, existing_categories)
 
-            # Close the SQLAlchemy session before writing — its open connection
-            # can block raw sqlite3 writes in the same process on macOS
             node_type = node.type
             node_url = node.url or ""
             node_content = node.content or ""
             node_created_at = node.created_at
-            session.close()
-            session = None
-
-            # Write results via raw sqlite3 — bypasses SQLAlchemy session issues
-            # that cause disk I/O errors in executor threads on macOS
-            import sqlite3 as _sqlite3
-            from ..db.database import DEFAULT_DB_PATH as _DB_PATH
 
             title_out = (agent_result.get("title") or node.title or "")[:500]
             summary_out = agent_result.get("summary") or ""
@@ -72,32 +63,17 @@ class GraphService:
             if agent_result.get("purpose"):
                 meta["purpose"] = agent_result["purpose"]
             content_out = (node.content or "")[:3000]
-            now = datetime.utcnow().isoformat()
 
-            for _attempt in range(3):
-                try:
-                    _conn = _sqlite3.connect(str(_DB_PATH), timeout=10)
-                    _conn.execute(
-                        "UPDATE nodes SET title=?, summary=?, status=?, tags=?, node_meta=?, processed_at=? WHERE id=?",
-                        (
-                            title_out,
-                            summary_out,
-                            "done",
-                            json.dumps(tags_out),
-                            json.dumps(meta),
-                            now,
-                            node_id,
-                        )
-                    )
-                    _conn.commit()
-                    _conn.close()
-                    break
-                except Exception as _we:
-                    if _attempt < 2:
-                        import time as _t
-                        _t.sleep(0.3 * (_attempt + 1))
-                    else:
-                        raise
+            # Update via SQLAlchemy so it works with both SQLite and Postgres
+            node.title = title_out
+            node.summary = summary_out
+            node.status = "done"
+            node.tags = tags_out
+            node.node_meta = meta
+            node.processed_at = datetime.utcnow()
+            session.commit()
+            session.close()
+            session = None
 
             # Add to vector DB
             embed_text = f"{title_out}\n{summary_out}\n{content_out}"
