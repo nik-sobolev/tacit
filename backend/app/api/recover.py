@@ -44,16 +44,22 @@ async def check_orphaned_nodes(user_id: str):
     db = get_database()
 
     with db.session_scope() as session:
+        from sqlalchemy import func
         orphaned = session.query(NodeDB).filter(
             (NodeDB.user_id == None) | (NodeDB.user_id != user_id)
         ).count()
-
         user_nodes = session.query(NodeDB).filter_by(user_id=user_id).count()
+        # Status breakdown for user's nodes
+        statuses = session.query(NodeDB.status, func.count(NodeDB.id)).filter_by(user_id=user_id).group_by(NodeDB.status).all()
+        # All distinct user_ids in DB
+        all_users = [r[0] for r in session.query(NodeDB.user_id).distinct().all()]
 
     return {
         "user_id": user_id,
         "orphaned_nodes": orphaned,
         "assigned_to_user": user_nodes,
+        "status_breakdown": {s: c for s, c in statuses},
+        "all_user_ids_in_db": all_users,
     }
 
 
