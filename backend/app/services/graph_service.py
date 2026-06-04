@@ -204,11 +204,6 @@ Rules:
 - connections: only include if there are genuinely related existing nodes (strength 0.6-1.0)
 - Return ONLY the JSON object, no other text"""
 
-        # Check token limit before calling Claude
-        if node.user_id:
-            from ..core.usage import check_limit
-            check_limit(node.user_id)
-
         try:
             response = self.client.messages.create(
                 model=self.model,
