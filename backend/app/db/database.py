@@ -31,6 +31,7 @@ class ContextDB(Base):
     __tablename__ = "contexts"
 
     id = Column(String, primary_key=True)
+    user_id = Column(String, index=True, nullable=True)   # Clerk user ID — nullable for legacy rows
     title = Column(String(200), nullable=False)
     type = Column(String(50), nullable=False)
     content = Column(Text, nullable=False)

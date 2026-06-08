@@ -162,16 +162,16 @@ class TacitEngine:
 
         # For temporal queries, also add a chronologically sorted node list
         if is_temporal:
-            knowledge["recent_nodes"] = self._get_recent_nodes(limit=10)
+            knowledge["recent_nodes"] = self._get_recent_nodes(limit=10, user_id=user_id)
 
         # Always inject complete canvas inventory so chat sees all nodes in real-time
-        knowledge["canvas_nodes"] = self._get_all_canvas_nodes()
+        knowledge["canvas_nodes"] = self._get_all_canvas_nodes(user_id=user_id)
 
         # Inject note content so Claude can read saved text notes
-        knowledge["notes"] = self._get_notes_for_context()
+        knowledge["notes"] = self._get_notes_for_context(user_id=user_id)
 
         # Add orphan nodes context
-        knowledge["orphan_nodes"] = self._get_orphan_nodes()
+        knowledge["orphan_nodes"] = self._get_orphan_nodes(user_id=user_id)
 
         # Build enhanced prompt with knowledge
         system_prompt = self._build_prompt(mode, knowledge)
@@ -304,17 +304,14 @@ class TacitEngine:
         words = set(re.sub(r'[^\w\s]', '', query.lower()).split())
         return len(words & self._TEMPORAL_KEYWORDS) >= 1
 
-    def _get_recent_nodes(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def _get_recent_nodes(self, limit: int = 10, user_id: str = None) -> List[Dict[str, Any]]:
         """Fetch nodes sorted by created_at descending from SQLite."""
         session = self.db.get_session()
         try:
-            nodes = (
-                session.query(NodeDB)
-                .filter_by(status="done")
-                .order_by(NodeDB.created_at.desc())
-                .limit(limit)
-                .all()
-            )
+            query = session.query(NodeDB).filter_by(status="done")
+            if user_id:
+                query = query.filter(NodeDB.user_id == user_id)
+            nodes = query.order_by(NodeDB.created_at.desc()).limit(limit).all()
             return [
                 {
                     "id": n.id,
@@ -335,15 +332,13 @@ class TacitEngine:
         finally:
             session.close()
 
-    def _get_notes_for_context(self) -> list:
+    def _get_notes_for_context(self, user_id: str = None) -> list:
         """Fetch all text notes with content for system prompt injection."""
         with self.db.session_scope() as s:
-            notes = (
-                s.query(NodeDB)
-                .filter(NodeDB.type == "note", NodeDB.status == "done")
-                .order_by(NodeDB.created_at.desc())
-                .all()
-            )
+            query = s.query(NodeDB).filter(NodeDB.type == "note", NodeDB.status == "done")
+            if user_id:
+                query = query.filter(NodeDB.user_id == user_id)
+            notes = query.order_by(NodeDB.created_at.desc()).all()
             return [
                 {
                     "id": n.id,
@@ -356,15 +351,14 @@ class TacitEngine:
                 for n in notes
             ]
 
-    def _get_all_canvas_nodes(self) -> list:
-        """Fetch compact inventory of ALL canvas nodes for real-time awareness."""
+    def _get_all_canvas_nodes(self, user_id: str = None) -> list:
+        """Fetch compact inventory of canvas nodes for real-time awareness."""
         session = self.db.get_session()
         try:
-            nodes = (
-                session.query(NodeDB)
-                .order_by(NodeDB.created_at.desc())
-                .all()
-            )
+            query = session.query(NodeDB)
+            if user_id:
+                query = query.filter(NodeDB.user_id == user_id)
+            nodes = query.order_by(NodeDB.created_at.desc()).all()
             result = []
             for n in nodes:
                 result.append({
@@ -381,12 +375,18 @@ class TacitEngine:
         finally:
             session.close()
 
-    def _get_orphan_nodes(self) -> List[Dict[str, str]]:
+    def _get_orphan_nodes(self, user_id: str = None) -> List[Dict[str, str]]:
         """Find nodes with zero edges."""
         session = self.db.get_session()
         try:
-            all_nodes = session.query(NodeDB).filter_by(status="done").all()
-            edges = session.query(EdgeDB).all()
+            query = session.query(NodeDB).filter_by(status="done")
+            if user_id:
+                query = query.filter(NodeDB.user_id == user_id)
+            all_nodes = query.all()
+            node_ids = {n.id for n in all_nodes}
+            edges = session.query(EdgeDB).filter(
+                EdgeDB.source_id.in_(node_ids)
+            ).all() if node_ids else []
             connected_ids = set()
             for e in edges:
                 connected_ids.add(e.source_id)

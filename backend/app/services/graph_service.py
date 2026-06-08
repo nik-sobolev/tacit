@@ -284,11 +284,13 @@ Rules:
 
     # ==================== GRAPH RETRIEVAL ====================
 
-    def get_graph(self, types: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Return all nodes and edges for the canvas."""
+    def get_graph(self, user_id: str = None, types: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Return nodes and edges for a specific user's canvas."""
         session = self.db.get_session()
         try:
             query = session.query(NodeDB)
+            if user_id:
+                query = query.filter(NodeDB.user_id == user_id)
             if types:
                 query = query.filter(NodeDB.type.in_(types))
             nodes = query.all()
@@ -297,7 +299,7 @@ Rules:
             edges = session.query(EdgeDB).filter(
                 EdgeDB.source_id.in_(node_ids),
                 EdgeDB.target_id.in_(node_ids)
-            ).all()
+            ).all() if node_ids else []
 
             return {
                 "nodes": [self._node_to_dict(n) for n in nodes],

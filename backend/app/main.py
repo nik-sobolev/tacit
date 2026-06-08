@@ -223,6 +223,9 @@ async def startup_event():
     (DEFAULT_DATA_DIR / "uploads").mkdir(parents=True, exist_ok=True)
     (DEFAULT_DATA_DIR / "chroma").mkdir(parents=True, exist_ok=True)
 
+    # Add user_id column to contexts table if missing (Postgres migration)
+    _migrate_add_user_id_to_contexts()
+
     # Reset interrupted nodes back to pending (don't mark as error — they'll be retried)
     _recover_stuck_nodes()
 
@@ -267,6 +270,23 @@ def _process_pending_nodes():
                     logger.error("startup_process_node_failed", node_id=node_id, error=str(e))
     except Exception as e:
         logger.error("process_pending_nodes_failed", error=str(e))
+
+
+def _migrate_add_user_id_to_contexts():
+    """Add user_id column to contexts table if it doesn't exist yet."""
+    from .db.database import get_database
+    try:
+        db = get_database()
+        # Use raw SQL to add column if missing — works for both SQLite and Postgres
+        with db.engine.connect() as conn:
+            try:
+                conn.execute(text("ALTER TABLE contexts ADD COLUMN user_id VARCHAR"))
+                conn.commit()
+                logger.info("migrated_contexts_user_id_column")
+            except Exception:
+                pass  # Column already exists — that's fine
+    except Exception as e:
+        logger.warning("migrate_contexts_user_id_failed", error=str(e))
 
 
 def _reindex_missing_nodes():

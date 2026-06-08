@@ -1,7 +1,7 @@
 """Graph and node API endpoints"""
 
 import structlog
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 from typing import Optional, List
 from sqlalchemy import func
@@ -9,7 +9,6 @@ from sqlalchemy import func
 from ..db.database import get_database, NodeDB, EdgeDB, ConversationDB, UserSettingsDB, UserDB
 from ..core.auth import get_current_user
 from datetime import datetime
-from fastapi import Depends
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -22,23 +21,22 @@ class SettingsUpdate(BaseModel):
 
 
 @router.get("/settings")
-async def get_settings():
+async def get_settings(current_user: dict = Depends(get_current_user)):
     db = get_database()
     with db.session_scope() as s:
-        row = s.query(UserSettingsDB).filter_by(id="default").first()
+        row = s.query(UserSettingsDB).filter_by(id=current_user["id"]).first()
         if not row:
-            row = UserSettingsDB(id="default")
-            s.add(row)
+            return {"user_name": None, "user_role": None, "organization": None}
         return {"user_name": row.user_name, "user_role": row.user_role, "organization": row.organization}
 
 
 @router.put("/settings")
-async def update_settings(body: SettingsUpdate, request: Request):
+async def update_settings(body: SettingsUpdate, request: Request, current_user: dict = Depends(get_current_user)):
     db = get_database()
     with db.session_scope() as s:
-        row = s.query(UserSettingsDB).filter_by(id="default").first()
+        row = s.query(UserSettingsDB).filter_by(id=current_user["id"]).first()
         if not row:
-            row = UserSettingsDB(id="default")
+            row = UserSettingsDB(id=current_user["id"])
             s.add(row)
         if body.user_name is not None:
             row.user_name = body.user_name
@@ -47,7 +45,6 @@ async def update_settings(body: SettingsUpdate, request: Request):
         if body.organization is not None:
             row.organization = body.organization
         row.updated_at = datetime.utcnow()
-    # Reload engine config with new settings
     try:
         engine = request.app.state.engine
         engine.config.user_name = body.user_name or engine.config.user_name
@@ -59,13 +56,13 @@ async def update_settings(body: SettingsUpdate, request: Request):
 
 
 @router.get("/notes")
-async def list_notes():
-    """Return all note nodes with full content, newest first."""
+async def list_notes(current_user: dict = Depends(get_current_user)):
+    """Return all note nodes for the current user."""
     db = get_database()
     with db.session_scope() as s:
         rows = (
             s.query(NodeDB)
-            .filter(NodeDB.type == "note")
+            .filter(NodeDB.type == "note", NodeDB.user_id == current_user["id"])
             .order_by(NodeDB.created_at.desc())
             .all()
         )
@@ -86,47 +83,45 @@ async def list_notes():
 
 
 @router.get("/categories")
-async def get_categories():
-    """Return all categories with node counts."""
+async def get_categories(current_user: dict = Depends(get_current_user)):
+    """Return categories for the current user's nodes."""
     try:
         db = get_database()
-        session = db.get_session()
-        try:
-            nodes = session.query(NodeDB).filter_by(status="done").all()
+        with db.session_scope() as session:
+            nodes = session.query(NodeDB).filter_by(status="done", user_id=current_user["id"]).all()
             cats = {}
             for n in nodes:
                 cat = (n.node_meta or {}).get("category", "Uncategorized") or "Uncategorized"
                 cats[cat] = cats.get(cat, 0) + 1
             return {"categories": [{"name": k, "count": v} for k, v in sorted(cats.items())]}
-        finally:
-            session.close()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/insights")
-async def get_insights():
-    """Return proactive insights: new nodes, orphans, category stats."""
+async def get_insights(current_user: dict = Depends(get_current_user)):
+    """Return proactive insights for the current user."""
     try:
         db = get_database()
-        session = db.get_session()
-        try:
-            all_nodes = session.query(NodeDB).filter_by(status="done").all()
-            all_edges = session.query(EdgeDB).all()
+        with db.session_scope() as session:
+            uid = current_user["id"]
+            all_nodes = session.query(NodeDB).filter_by(status="done", user_id=uid).all()
+            node_ids = {n.id for n in all_nodes}
+            all_edges = session.query(EdgeDB).filter(
+                EdgeDB.source_id.in_(node_ids),
+                EdgeDB.target_id.in_(node_ids)
+            ).all() if node_ids else []
 
-            # Category counts
             cats = {}
             for n in all_nodes:
                 cat = (n.node_meta or {}).get("category", "Uncategorized") or "Uncategorized"
                 cats[cat] = cats.get(cat, 0) + 1
 
-            # Find last conversation activity
-            last_conv = session.query(ConversationDB).order_by(
+            last_conv = session.query(ConversationDB).filter_by(user_id=uid).order_by(
                 ConversationDB.last_activity.desc()
             ).first()
             last_visit = last_conv.last_activity if last_conv else None
 
-            # Nodes added since last visit
             new_nodes = []
             if last_visit:
                 new_nodes = [
@@ -137,7 +132,6 @@ async def get_insights():
                     if n.created_at and n.created_at > last_visit
                 ]
 
-            # Orphan nodes (no edges)
             connected_ids = set()
             for e in all_edges:
                 connected_ids.add(e.source_id)
@@ -155,8 +149,6 @@ async def get_insights():
                 "new_since_last_visit": new_nodes,
                 "orphan_nodes": orphans,
             }
-        finally:
-            session.close()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -178,49 +170,42 @@ async def get_graph(
     request: Request,
     current_user: dict = Depends(get_current_user),
 ):
-    """Return all nodes and edges for the canvas. Also seeds content for new users."""
+    """Return nodes and edges for the current user's canvas."""
     try:
         graph_service = request.app.state.graph_service
-        # Upsert user and seed starter content on first canvas load
         from ..api.chat import _upsert_user
         _upsert_user(current_user, graph_service=graph_service)
-        return graph_service.get_graph()
+        return graph_service.get_graph(user_id=current_user["id"])
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/nodes")
-async def list_nodes(request: Request, limit: int = 200, offset: int = 0):
-    """List all nodes with pagination."""
+async def list_nodes(request: Request, current_user: dict = Depends(get_current_user), limit: int = 200, offset: int = 0):
+    """List nodes for the current user."""
     try:
         db = get_database()
-        session = db.get_session()
-        try:
-            nodes = session.query(NodeDB).offset(offset).limit(limit).all()
+        with db.session_scope() as session:
+            nodes = session.query(NodeDB).filter_by(user_id=current_user["id"]).offset(offset).limit(limit).all()
             graph_service = request.app.state.graph_service
             return {"nodes": [graph_service._node_to_dict(n) for n in nodes]}
-        finally:
-            session.close()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/nodes/{node_id}")
-async def get_node(request: Request, node_id: str):
-    """Get full node data including content."""
+async def get_node(request: Request, node_id: str, current_user: dict = Depends(get_current_user)):
+    """Get full node data — enforces ownership."""
     try:
         db = get_database()
-        session = db.get_session()
-        try:
-            node = session.query(NodeDB).filter_by(id=node_id).first()
+        with db.session_scope() as session:
+            node = session.query(NodeDB).filter_by(id=node_id, user_id=current_user["id"]).first()
             if not node:
                 raise HTTPException(status_code=404, detail="Node not found")
             graph_service = request.app.state.graph_service
             data = graph_service._node_to_dict(node)
-            data["content"] = node.content  # include full content
+            data["content"] = node.content
             return data
-        finally:
-            session.close()
     except HTTPException:
         raise
     except Exception as e:
@@ -228,13 +213,12 @@ async def get_node(request: Request, node_id: str):
 
 
 @router.put("/nodes/{node_id}")
-async def update_node(request: Request, node_id: str, body: NodeUpdateRequest):
-    """Update node title, canvas position, or tags."""
+async def update_node(request: Request, node_id: str, body: NodeUpdateRequest, current_user: dict = Depends(get_current_user)):
+    """Update node — enforces ownership."""
     try:
         db = get_database()
-        session = db.get_session()
-        try:
-            node = session.query(NodeDB).filter_by(id=node_id).first()
+        with db.session_scope() as session:
+            node = session.query(NodeDB).filter_by(id=node_id, user_id=current_user["id"]).first()
             if not node:
                 raise HTTPException(status_code=404, detail="Node not found")
             if body.title is not None:
@@ -245,11 +229,8 @@ async def update_node(request: Request, node_id: str, body: NodeUpdateRequest):
                 node.canvas_y = body.canvas_y
             if body.tags is not None:
                 node.tags = body.tags
-            session.commit()
             graph_service = request.app.state.graph_service
             return graph_service._node_to_dict(node)
-        finally:
-            session.close()
     except HTTPException:
         raise
     except Exception as e:
@@ -257,63 +238,78 @@ async def update_node(request: Request, node_id: str, body: NodeUpdateRequest):
 
 
 @router.delete("/nodes/{node_id}")
-async def delete_node(request: Request, node_id: str):
-    """Delete a node, its edges, and its vector embedding."""
+async def delete_node(request: Request, node_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a node — enforces ownership."""
     try:
         db = get_database()
         graph_service = request.app.state.graph_service
 
-        # Delete edges
+        # Verify ownership
+        with db.session_scope() as session:
+            node = session.query(NodeDB).filter_by(id=node_id, user_id=current_user["id"]).first()
+            if not node:
+                raise HTTPException(status_code=404, detail="Node not found")
+
         graph_service.delete_node_edges(node_id)
 
-        # Delete from vector DB
         try:
             graph_service.vector_service.delete_node(node_id)
         except Exception:
             pass
 
-        # Delete from SQL
-        session = db.get_session()
-        try:
+        with db.session_scope() as session:
             node = session.query(NodeDB).filter_by(id=node_id).first()
             if node:
                 session.delete(node)
-                session.commit()
-        finally:
-            session.close()
 
         return {"success": True, "node_id": node_id}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/nodes/{node_id}/related")
-async def get_related_nodes(request: Request, node_id: str):
-    """Get nodes connected to this node via edges."""
+async def get_related_nodes(request: Request, node_id: str, current_user: dict = Depends(get_current_user)):
+    """Get nodes related to this node — enforces ownership."""
     try:
-        from ..db.database import EdgeDB
         db = get_database()
-        session = db.get_session()
-        try:
+        with db.session_scope() as session:
+            # Verify the source node belongs to current user
+            node = session.query(NodeDB).filter_by(id=node_id, user_id=current_user["id"]).first()
+            if not node:
+                raise HTTPException(status_code=404, detail="Node not found")
+
             edges = session.query(EdgeDB).filter(
                 (EdgeDB.source_id == node_id) | (EdgeDB.target_id == node_id)
             ).all()
             related_ids = set()
             for e in edges:
                 related_ids.add(e.target_id if e.source_id == node_id else e.source_id)
-            nodes = session.query(NodeDB).filter(NodeDB.id.in_(related_ids)).all()
+
+            # Only return related nodes that also belong to current user
+            nodes = session.query(NodeDB).filter(
+                NodeDB.id.in_(related_ids),
+                NodeDB.user_id == current_user["id"]
+            ).all()
             graph_service = request.app.state.graph_service
             return {"nodes": [graph_service._node_to_dict(n) for n in nodes]}
-        finally:
-            session.close()
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/nodes/{node_id}/link/{target_id}")
-async def link_nodes(request: Request, node_id: str, target_id: str, body: LinkRequest):
-    """Create a manual edge between two nodes."""
+async def link_nodes(request: Request, node_id: str, target_id: str, body: LinkRequest, current_user: dict = Depends(get_current_user)):
+    """Create a manual edge between two nodes — enforces ownership of both."""
     try:
+        db = get_database()
+        with db.session_scope() as session:
+            src = session.query(NodeDB).filter_by(id=node_id, user_id=current_user["id"]).first()
+            tgt = session.query(NodeDB).filter_by(id=target_id, user_id=current_user["id"]).first()
+            if not src or not tgt:
+                raise HTTPException(status_code=404, detail="Node not found")
         graph_service = request.app.state.graph_service
         edge = graph_service.create_edge(
             source_id=node_id,
@@ -323,43 +319,48 @@ async def link_nodes(request: Request, node_id: str, target_id: str, body: LinkR
             label=body.label or "",
         )
         return graph_service._edge_to_dict(edge)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/nodes/recategorize")
-async def recategorize_nodes(request: Request):
-    """Re-run agent on nodes missing category/purpose metadata."""
+async def recategorize_nodes(request: Request, current_user: dict = Depends(get_current_user)):
+    """Re-run agent on current user's nodes missing category metadata."""
     import asyncio
     try:
         db = get_database()
         graph_service = request.app.state.graph_service
-        session = db.get_session()
-        try:
-            nodes = session.query(NodeDB).filter_by(status="done").all()
-            to_process = [
-                n.id for n in nodes
-                if not (n.node_meta or {}).get("category")
-            ]
-        finally:
-            session.close()
+        with db.session_scope() as session:
+            nodes = session.query(NodeDB).filter_by(status="done", user_id=current_user["id"]).all()
+            to_process = [n.id for n in nodes if not (n.node_meta or {}).get("category")]
 
-        # Process in background
         for node_id in to_process:
-            asyncio.get_event_loop().run_in_executor(
-                None, graph_service.process_node, node_id
-            )
+            asyncio.get_event_loop().run_in_executor(None, graph_service.process_node, node_id)
 
-        return {"queued": len(to_process), "total": len(nodes)}
+        return {"queued": len(to_process)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/edges/{edge_id}")
-async def delete_edge(request: Request, edge_id: str):
-    """Delete a single edge by ID."""
+async def delete_edge(request: Request, edge_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a single edge — verifies it connects nodes owned by current user."""
     try:
+        db = get_database()
         graph_service = request.app.state.graph_service
+
+        # Verify edge connects nodes owned by this user
+        with db.session_scope() as session:
+            from ..db.database import EdgeDB as EDB
+            edge = session.query(EDB).filter_by(id=edge_id).first()
+            if not edge:
+                raise HTTPException(status_code=404, detail="Edge not found")
+            src = session.query(NodeDB).filter_by(id=edge.source_id, user_id=current_user["id"]).first()
+            if not src:
+                raise HTTPException(status_code=403, detail="Not your edge")
+
         deleted = graph_service.delete_edge(edge_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Edge not found")

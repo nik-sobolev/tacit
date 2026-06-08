@@ -1,12 +1,13 @@
 """Context API endpoints"""
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from typing import List
 import uuid
 from datetime import datetime
 
 from ..models.context import Context, ContextCreate, ContextUpdate, ContextSearchQuery, ContextType
 from ..db.database import get_database, ContextDB
+from ..core.auth import get_current_user
 
 router = APIRouter()
 
@@ -15,7 +16,7 @@ db = get_database()
 
 
 @router.post("/context", response_model=Context)
-async def create_context(request: Request, context_data: ContextCreate):
+async def create_context(request: Request, context_data: ContextCreate, current_user: dict = Depends(get_current_user)):
     """Create a new context"""
     try:
         engine = request.app.state.engine
@@ -36,6 +37,7 @@ async def create_context(request: Request, context_data: ContextCreate):
         # Store in SQLite
         db_context = ContextDB(
             id=context_id,
+            user_id=current_user["id"],
             title=context.title,
             type=context.type.value,
             content=context.content,
@@ -70,12 +72,15 @@ async def create_context(request: Request, context_data: ContextCreate):
 @router.get("/context", response_model=List[Context])
 async def list_contexts(
     type: ContextType = None,
-    limit: int = 50
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
 ):
-    """List all contexts with optional filtering"""
+    """List contexts for the current user."""
     try:
         session = db.get_session()
-        query = session.query(ContextDB)
+        query = session.query(ContextDB).filter(
+            (ContextDB.user_id == current_user["id"]) | (ContextDB.user_id == None)
+        )
 
         # Filter by type if specified
         if type:
@@ -110,11 +115,14 @@ async def list_contexts(
 
 
 @router.get("/context/{context_id}", response_model=Context)
-async def get_context(context_id: str):
-    """Get a specific context by ID"""
+async def get_context(context_id: str, current_user: dict = Depends(get_current_user)):
+    """Get a specific context — enforces ownership."""
     try:
         session = db.get_session()
-        db_context = session.query(ContextDB).filter(ContextDB.id == context_id).first()
+        db_context = session.query(ContextDB).filter(
+            ContextDB.id == context_id,
+            (ContextDB.user_id == current_user["id"]) | (ContextDB.user_id == None)
+        ).first()
         session.close()
 
         if not db_context:
@@ -139,13 +147,16 @@ async def get_context(context_id: str):
 
 
 @router.put("/context/{context_id}", response_model=Context)
-async def update_context(request: Request, context_id: str, update_data: ContextUpdate):
-    """Update an existing context"""
+async def update_context(request: Request, context_id: str, update_data: ContextUpdate, current_user: dict = Depends(get_current_user)):
+    """Update an existing context — enforces ownership."""
     try:
         engine = request.app.state.engine
         session = db.get_session()
 
-        db_context = session.query(ContextDB).filter(ContextDB.id == context_id).first()
+        db_context = session.query(ContextDB).filter(
+            ContextDB.id == context_id,
+            (ContextDB.user_id == current_user["id"]) | (ContextDB.user_id == None)
+        ).first()
         if not db_context:
             session.close()
             raise HTTPException(status_code=404, detail="Context not found")
@@ -203,13 +214,16 @@ async def update_context(request: Request, context_id: str, update_data: Context
 
 
 @router.delete("/context/{context_id}")
-async def delete_context(request: Request, context_id: str):
-    """Delete a context"""
+async def delete_context(request: Request, context_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a context — enforces ownership."""
     try:
         engine = request.app.state.engine
         session = db.get_session()
 
-        db_context = session.query(ContextDB).filter(ContextDB.id == context_id).first()
+        db_context = session.query(ContextDB).filter(
+            ContextDB.id == context_id,
+            (ContextDB.user_id == current_user["id"]) | (ContextDB.user_id == None)
+        ).first()
         if not db_context:
             session.close()
             raise HTTPException(status_code=404, detail="Context not found")

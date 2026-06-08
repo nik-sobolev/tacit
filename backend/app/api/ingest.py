@@ -2,10 +2,11 @@
 
 import asyncio
 import structlog
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 
 from ..db.database import get_database, NodeDB
+from ..core.auth import get_current_user
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -18,13 +19,14 @@ class IngestRequest(BaseModel):
 
 
 @router.post("/ingest")
-async def ingest_url(request: Request, body: IngestRequest):
-    """Ingest a URL: detect type, extract content, create node, run agent in background."""
+async def ingest_url(request: Request, body: IngestRequest, current_user: dict = Depends(get_current_user)):
+    """Ingest a URL for the current user."""
     db = get_database()
+    user_id = current_user["id"]
 
-    # Duplicate check — return existing node immediately, skip re-ingestion
+    # Per-user duplicate check
     with db.session_scope() as dup_session:
-        existing = dup_session.query(NodeDB).filter_by(url=body.url).first()
+        existing = dup_session.query(NodeDB).filter_by(url=body.url, user_id=user_id).first()
         if existing:
             return {
                 "node_id": existing.id,
@@ -40,7 +42,6 @@ async def ingest_url(request: Request, body: IngestRequest):
     graph_service = request.app.state.graph_service
 
     try:
-        # Run blocking extraction + node insert off the event loop
         loop = asyncio.get_event_loop()
         node = await loop.run_in_executor(
             None,
@@ -51,7 +52,12 @@ async def ingest_url(request: Request, body: IngestRequest):
             ),
         )
 
-        # Background processing — fire and forget; failures won't crash the request
+        # Tag node with user_id
+        with db.session_scope() as s:
+            db_node = s.query(NodeDB).filter_by(id=node.id).first()
+            if db_node:
+                db_node.user_id = user_id
+
         def _safe_process(node_id: str):
             try:
                 graph_service.process_node(node_id)
@@ -83,11 +89,11 @@ async def ingest_url(request: Request, body: IngestRequest):
 
 
 @router.get("/ingest/{node_id}/status")
-async def get_ingest_status(request: Request, node_id: str):
-    """Poll processing status for a node."""
+async def get_ingest_status(request: Request, node_id: str, current_user: dict = Depends(get_current_user)):
+    """Poll processing status for a node — enforces ownership."""
     try:
         with get_database().session_scope() as session:
-            node = session.query(NodeDB).filter_by(id=node_id).first()
+            node = session.query(NodeDB).filter_by(id=node_id, user_id=current_user["id"]).first()
             if not node:
                 raise HTTPException(status_code=404, detail="Node not found")
             return {
