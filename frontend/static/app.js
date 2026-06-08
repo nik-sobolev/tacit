@@ -70,9 +70,30 @@ function addUserMenuToHeader(clerk) {
     actions.insertBefore(userBtn, actions.firstChild);
 
     // Inject sign-out button into Clerk's UserProfile modal sidebar when it opens
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver(async () => {
         const navbar = document.querySelector('.cl-navbar');
         if (!navbar || navbar.querySelector('.tacit-signout-item')) return;
+
+        // iOS quick-add shortcut button
+        const mobileItem = document.createElement('button');
+        mobileItem.className = 'tacit-mobile-item cl-navbarButton';
+        mobileItem.setAttribute('type', 'button');
+        mobileItem.style.cssText = 'display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:14px;font-family:inherit;border-radius:6px;';
+        mobileItem.innerHTML = '<span style="font-size:16px">📱</span> iOS Shortcut';
+        mobileItem.addEventListener('click', async () => {
+            try {
+                const res = await apiFetch(`${API_BASE}/quickadd/token`);
+                const data = await res.json();
+                const shortcutUrl = `https://www.icloud.com/shortcuts/` // placeholder
+                const addUrl = `https://www.trytacit.app/api/quickadd?token=${data.token}&url=`;
+                alert(`Your quick-add URL:\n\n${addUrl}\n\nAdd this as a Siri Shortcut:\nOpen Shortcuts → New → Add Action → URL → paste above URL, then append the variable "Safari URL" at the end. Run it from the Share Sheet in Safari.`);
+            } catch (e) {
+                alert('Could not load token. Try again.');
+            }
+        });
+        navbar.appendChild(mobileItem);
+
+        // Sign out button
         const item = document.createElement('button');
         item.className = 'tacit-signout-item cl-navbarButton';
         item.setAttribute('type', 'button');
@@ -167,6 +188,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadGraph();
     await loadCategories();
     await loadInsights();
+
+    // Handle PWA share target — Android shares URL via ?share_url=
+    const sharedUrl = new URLSearchParams(window.location.search).get('share_url');
+    if (sharedUrl && sharedUrl.startsWith('http')) {
+        window.history.replaceState({}, '', '/');
+        document.getElementById('urlInput').value = sharedUrl;
+        await submitUrl();
+    }
 });
 
 // ==================== CANVAS ENGINE ====================
@@ -720,6 +749,57 @@ async function deleteNode(nodeId, cardEl) {
     } catch (e) {
         showToast('Failed to delete node', 'error');
     }
+}
+
+// ==================== MOBILE ====================
+
+function isMobile() {
+    return window.innerWidth <= 768;
+}
+
+function mobileTab(tab) {
+    if (!isMobile()) return;
+    document.querySelectorAll('.mobile-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector(`[data-tab="${tab}"]`)?.classList.add('active');
+
+    const chatPanel = document.getElementById('chatPanel');
+    if (tab === 'chat') {
+        chatPanel.classList.add('mobile-visible');
+        // Focus input
+        setTimeout(() => document.getElementById('messageInput')?.focus(), 100);
+    } else {
+        chatPanel.classList.remove('mobile-visible');
+    }
+}
+
+function mobileShowAdd() {
+    if (!isMobile()) return;
+    const modal = document.createElement('div');
+    modal.className = 'mobile-add-modal';
+    modal.innerHTML = `
+        <div class="mobile-add-sheet">
+            <p style="font-size:14px;color:var(--text-secondary);margin-bottom:12px">Add URL to canvas</p>
+            <input id="mobileUrlInput" type="url" placeholder="https://..." inputmode="url" autofocus>
+            <button id="mobileAddBtn">Add to Canvas</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    const input = modal.querySelector('#mobileUrlInput');
+    setTimeout(() => input?.focus(), 100);
+
+    modal.querySelector('#mobileAddBtn').addEventListener('click', async () => {
+        const url = input.value.trim();
+        if (!url) return;
+        document.getElementById('urlInput').value = url;
+        modal.remove();
+        await submitUrl();
+        mobileTab('canvas');
+    });
+
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
 }
 
 // ==================== BILLING ====================

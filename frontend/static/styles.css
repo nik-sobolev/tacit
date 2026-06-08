@@ -1266,3 +1266,177 @@ body {
     display: flex;
     justify-content: flex-end;
 }
+
+/* ==================== MOBILE TAB BAR ==================== */
+
+.mobile-tab-bar {
+    display: none;
+}
+
+/* ==================== MOBILE RESPONSIVE ==================== */
+
+@media (max-width: 768px) {
+
+    /* Hide desktop elements */
+    .url-bar-wrap { display: none; }
+    .header-actions { display: none; }
+    .chat-resize-handle { display: none; }
+
+    /* Header — compact */
+    .app-header {
+        padding: 0 12px;
+        height: 48px;
+        justify-content: space-between;
+    }
+
+    .brand-name { font-size: 18px; }
+
+    /* Usage meter in header on mobile */
+    #usageMeter {
+        font-size: 11px;
+        padding: 3px 6px;
+    }
+
+    /* Body fills screen minus header and tab bar */
+    .app-body {
+        flex-direction: column;
+        height: calc(100dvh - 48px - 56px);
+    }
+
+    /* Canvas — list view on mobile */
+    #canvasViewport {
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        cursor: default !important;
+        background: var(--bg);
+    }
+
+    #canvasSurface {
+        transform: none !important;
+        position: relative !important;
+        width: 100% !important;
+        height: auto !important;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 12px;
+    }
+
+    .canvas-card {
+        position: relative !important;
+        left: auto !important;
+        top: auto !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        cursor: pointer;
+    }
+
+    /* Hide SVG edges on mobile */
+    #edgesLayer { display: none; }
+
+    /* Chat panel — full screen when active */
+    .chat-panel {
+        position: fixed !important;
+        top: 48px !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 56px !important;
+        width: 100% !important;
+        min-width: unset !important;
+        max-width: unset !important;
+        height: auto !important;
+        border-right: none;
+        border-top: 1px solid var(--border);
+        z-index: 100;
+        display: none;
+    }
+
+    .chat-panel.mobile-visible {
+        display: flex !important;
+    }
+
+    /* Bottom tab bar */
+    .mobile-tab-bar {
+        display: flex;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 56px;
+        background: var(--surface);
+        border-top: 1px solid var(--border);
+        z-index: 200;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .mobile-tab {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--text-tertiary);
+        transition: color 0.15s;
+        padding: 6px 0;
+    }
+
+    .mobile-tab.active {
+        color: var(--accent);
+    }
+
+    .mobile-tab-icon {
+        font-size: 18px;
+        line-height: 1;
+    }
+
+    .mobile-tab-label {
+        font-size: 10px;
+        font-weight: 500;
+        font-family: inherit;
+    }
+
+    /* Modal for adding URL on mobile */
+    .mobile-add-modal {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.6);
+        z-index: 500;
+        display: flex;
+        align-items: flex-end;
+    }
+
+    .mobile-add-sheet {
+        background: var(--surface);
+        border-radius: 16px 16px 0 0;
+        padding: 20px 16px 32px;
+        width: 100%;
+    }
+
+    .mobile-add-sheet input {
+        width: 100%;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        color: var(--text);
+        font-size: 15px;
+        font-family: inherit;
+        margin-bottom: 12px;
+    }
+
+    .mobile-add-sheet button {
+        width: 100%;
+        padding: 12px;
+        background: var(--accent);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+}

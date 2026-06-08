@@ -10,7 +10,7 @@ from pathlib import Path
 import os
 
 from .api import chat, context, documents
-from .api import ingest, graph as graph_api, share as share_api, images as images_api, billing as billing_api, recover as recover_api, migrate as migrate_api
+from .api import ingest, graph as graph_api, share as share_api, images as images_api, billing as billing_api, recover as recover_api, migrate as migrate_api, quickadd as quickadd_api
 from .core.auth import get_current_user
 from .core.config import TacitConfig
 from .core.engine import TacitEngine
@@ -81,6 +81,8 @@ app.include_router(billing_api.router, prefix="/api", tags=["billing"])
 app.include_router(recover_api.router, prefix="/api", tags=["recover"])
 # Migration — protected by secret header, no Clerk auth
 app.include_router(migrate_api.router, prefix="/api", tags=["migrate"])
+# Quick-add — no auth_dep here (endpoints use Clerk or token auth internally)
+app.include_router(quickadd_api.router, prefix="/api", tags=["quickadd"])
 
 # Serve user uploads (images, etc.)
 uploads_path = DEFAULT_DATA_DIR / "uploads"
@@ -91,6 +93,22 @@ app.mount("/uploads", StaticFiles(directory=str(uploads_path)), name="uploads")
 frontend_path = Path(__file__).parent.parent.parent / "frontend" / "static"
 if frontend_path.exists():
     app.mount("/static", StaticFiles(directory=str(frontend_path)), name="static")
+
+
+@app.post("/share", response_class=HTMLResponse)
+async def pwa_share_target(request: Request):
+    """PWA share target — receives URLs shared from Android/iOS to the installed PWA."""
+    try:
+        form = await request.form()
+        url = form.get("url") or form.get("text") or ""
+        if url and url.startswith("http"):
+            return HTMLResponse(
+                f'<script>window.location="/?share_url={url}"</script>',
+                status_code=200
+            )
+    except Exception:
+        pass
+    return HTMLResponse('<script>window.location="/"</script>', status_code=200)
 
 
 @app.get("/share/{token}", response_class=HTMLResponse)

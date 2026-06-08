@@ -2,9 +2,15 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Tacit — Second Brain</title>
-    <link rel="stylesheet" href="/static/styles.css?v=11">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Tacit">
+    <meta name="theme-color" content="#0f0f1a">
+    <link rel="stylesheet" href="/static/styles.css?v=12">
     <script>window.CLERK_PUBLISHABLE_KEY = "pk_live_Y2xlcmsudHJ5dGFjaXQuYXBwJA";</script>
     <script async crossorigin="anonymous" data-clerk-publishable-key="pk_live_Y2xlcmsudHJ5dGFjaXQuYXBwJA" src="https://clerk.trytacit.app/npm/@clerk/clerk-js@5/dist/clerk.browser.js" type="text/javascript"></script>
 </head>
@@ -157,9 +163,29 @@
     <!-- Toast -->
     <div id="toast" class="toast"></div>
 
+    <!-- Mobile bottom tab bar -->
+    <nav id="mobileTabBar" class="mobile-tab-bar">
+        <button class="mobile-tab active" data-tab="canvas" onclick="mobileTab('canvas')">
+            <span class="mobile-tab-icon">⊞</span>
+            <span class="mobile-tab-label">Canvas</span>
+        </button>
+        <button class="mobile-tab" data-tab="add" onclick="mobileShowAdd()">
+            <span class="mobile-tab-icon" style="font-size:22px;line-height:1">+</span>
+            <span class="mobile-tab-label">Add</span>
+        </button>
+        <button class="mobile-tab" data-tab="chat" onclick="mobileTab('chat')">
+            <span class="mobile-tab-icon">💬</span>
+            <span class="mobile-tab-label">Chat</span>
+        </button>
+    </nav>
 
     <!-- Markdown -->
     <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
-    <script src="/static/app.js?v=25"></script>
+    <script src="/static/app.js?v=26"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+        }
+    </script>
 </body>
 </html>

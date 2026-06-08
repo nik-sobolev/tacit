@@ -67,6 +67,15 @@ class UserDB(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class UserQuickTokenDB(Base):
+    """Long-lived token for iOS Siri Shortcut / mobile quick-add"""
+    __tablename__ = "user_quick_tokens"
+
+    token      = Column(String, primary_key=True)   # UUID, never expires
+    user_id    = Column(String, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class UserUsageDB(Base):
     """Token usage tracking for billing"""
     __tablename__ = "user_usage"
