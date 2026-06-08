@@ -47,12 +47,16 @@ class TacitEngine:
 
     # ==================== DB HELPERS ====================
 
-    def _ensure_conversation(self, session_id: str) -> None:
+    def _ensure_conversation(self, session_id: str, user_id: str = None) -> None:
         """Create a ConversationDB record if one doesn't exist yet."""
         session = self.db.get_session()
         try:
-            if not session.query(ConversationDB).filter_by(id=session_id).first():
-                session.add(ConversationDB(id=session_id))
+            existing = session.query(ConversationDB).filter_by(id=session_id).first()
+            if not existing:
+                session.add(ConversationDB(id=session_id, user_id=user_id))
+                session.commit()
+            elif user_id and not existing.user_id:
+                existing.user_id = user_id
                 session.commit()
         finally:
             session.close()
@@ -137,8 +141,8 @@ class TacitEngine:
             from .usage import check_limit
             check_limit(user_id)
 
-        # Ensure a DB record exists for this session
-        self._ensure_conversation(session_id)
+        # Ensure a DB record exists for this session, tagged with user_id from the start
+        self._ensure_conversation(session_id, user_id=user_id)
 
         # Populate in-memory cache from DB if this is the first access
         if session_id not in self.conversations:

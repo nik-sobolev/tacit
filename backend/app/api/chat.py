@@ -124,16 +124,6 @@ async def send_message(
             user_id=current_user["id"]
         )
 
-        # Tag conversation with user_id so history is per-user
-        try:
-            from ..db.database import ConversationDB
-            with get_database().session_scope() as s:
-                conv = s.query(ConversationDB).filter_by(id=session_id).first()
-                if conv and not conv.user_id:
-                    conv.user_id = current_user["id"]
-        except Exception:
-            pass
-
         # Kick off background graph processing for any URLs ingested via chat
         graph_service = request.app.state.graph_service
         for action in result.get('actions', []):
