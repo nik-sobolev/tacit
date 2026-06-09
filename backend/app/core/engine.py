@@ -162,7 +162,7 @@ class TacitEngine:
 
         # Retrieve relevant context and documents
         is_temporal = self._is_temporal_query(user_message)
-        knowledge = self._retrieve_knowledge(user_message)
+        knowledge = self._retrieve_knowledge(user_message, user_id=user_id)
 
         # For temporal queries, also add a chronologically sorted node list
         if is_temporal:
@@ -389,7 +389,7 @@ class TacitEngine:
             all_nodes = query.all()
             node_ids = {n.id for n in all_nodes}
             edges = session.query(EdgeDB).filter(
-                EdgeDB.source_id.in_(node_ids)
+                EdgeDB.source_id.in_(node_ids) | EdgeDB.target_id.in_(node_ids)
             ).all() if node_ids else []
             connected_ids = set()
             for e in edges:
@@ -444,7 +444,7 @@ class TacitEngine:
             "last_mentioned_at": person.last_mentioned_at.isoformat() if person.last_mentioned_at else "",
         }
 
-    def _retrieve_knowledge(self, query: str) -> Dict[str, Any]:
+    def _retrieve_knowledge(self, query: str, user_id: str = None) -> Dict[str, Any]:
         try:
             results = self.vector_service.search_all(
                 query=query,
@@ -467,7 +467,7 @@ class TacitEngine:
             relevant_nodes = results.get("nodes", [])
 
             if self._is_temporal_query(query):
-                recent_nodes = self._get_recent_nodes(limit=10)
+                recent_nodes = self._get_recent_nodes(limit=10, user_id=user_id)
                 # Merge: add recent nodes not already in results
                 existing_ids = {n["id"] for n in relevant_nodes}
                 for rn in recent_nodes:

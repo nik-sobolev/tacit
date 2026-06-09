@@ -98,12 +98,16 @@ if frontend_path.exists():
 @app.post("/share", response_class=HTMLResponse)
 async def pwa_share_target(request: Request):
     """PWA share target — receives URLs shared from Android/iOS to the installed PWA."""
+    from urllib.parse import quote, urlparse
     try:
         form = await request.form()
         url = form.get("url") or form.get("text") or ""
-        if url and url.startswith("http"):
+        # Validate it's a real http/https URL before embedding
+        parsed = urlparse(url)
+        if parsed.scheme in ("http", "https") and parsed.netloc:
+            safe_url = quote(url, safe="/:@?=&%#+-.")
             return HTMLResponse(
-                f'<script>window.location="/?share_url={url}"</script>',
+                f'<script>window.location="/?share_url={safe_url}"</script>',
                 status_code=200
             )
     except Exception:

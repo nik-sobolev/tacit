@@ -38,7 +38,7 @@ class IngestionService:
         self.db = get_database()
         self._whisper_model = None  # lazy-load
 
-    def ingest_url(self, url: str, canvas_x: float = 100.0, canvas_y: float = 100.0) -> NodeDB:
+    def ingest_url(self, url: str, canvas_x: float = 100.0, canvas_y: float = 100.0, user_id: str = None) -> NodeDB:
         """Main entry point: detect type, extract content, create NodeDB record."""
         content_type = detect_url_type(url)
         logger.info("ingesting_url", url=url, type=content_type)
@@ -62,6 +62,7 @@ class IngestionService:
         node_id = str(uuid.uuid4())
         node = NodeDB(
             id=node_id,
+            user_id=user_id,
             type=content_type,
             title=data.get("title") or url[:200],
             content=data.get("content", ""),

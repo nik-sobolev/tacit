@@ -53,12 +53,11 @@ async def check_orphaned_nodes(user_id: str):
         statuses = session.query(NodeDB.status, func.count(NodeDB.id)).filter_by(user_id=user_id).group_by(NodeDB.status).all()
         # All distinct user_ids in DB
         all_users = [r[0] for r in session.query(NodeDB.user_id).distinct().all()]
-
-    # Sample error messages from failed nodes
-    error_samples = [
-        {"id": n.id, "title": n.title, "error": n.error_message}
-        for n in session.query(NodeDB).filter_by(user_id=user_id, status="error").limit(5).all()
-    ]
+        # Sample error messages — must be inside session_scope
+        error_samples = [
+            {"id": n.id, "title": n.title, "error": n.error_message}
+            for n in session.query(NodeDB).filter_by(user_id=user_id, status="error").limit(5).all()
+        ]
 
     return {
         "user_id": user_id,

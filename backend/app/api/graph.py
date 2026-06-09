@@ -258,7 +258,7 @@ async def delete_node(request: Request, node_id: str, current_user: dict = Depen
             pass
 
         with db.session_scope() as session:
-            node = session.query(NodeDB).filter_by(id=node_id).first()
+            node = session.query(NodeDB).filter_by(id=node_id, user_id=current_user["id"]).first()
             if node:
                 session.delete(node)
 

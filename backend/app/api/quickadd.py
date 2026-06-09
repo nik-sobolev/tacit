@@ -16,12 +16,15 @@ router = APIRouter()
 async def get_or_create_token(current_user: dict = Depends(get_current_user)):
     """Get (or create) the user's long-lived quick-add token."""
     db = get_database()
+    token = None
     with db.session_scope() as session:
         existing = session.query(UserQuickTokenDB).filter_by(user_id=current_user["id"]).first()
         if existing:
-            return {"token": existing.token, "user_id": current_user["id"]}
-        token = str(uuid.uuid4())
-        session.add(UserQuickTokenDB(token=token, user_id=current_user["id"]))
+            token = existing.token
+        else:
+            token = str(uuid.uuid4())
+            session.add(UserQuickTokenDB(token=token, user_id=current_user["id"]))
+    # Return after session commits
     return {"token": token, "user_id": current_user["id"]}
 
 
@@ -39,10 +42,9 @@ async def rotate_token(current_user: dict = Depends(get_current_user)):
     return {"token": new_token}
 
 
-@router.get("/quickadd")
 @router.post("/quickadd")
 async def quick_add(request: Request, token: str, url: str = None):
-    """Add a URL to the user's canvas. No Clerk auth — token-based."""
+    """Add a URL to the user's canvas. No Clerk auth — token-based. POST only."""
     db = get_database()
 
     with db.session_scope() as session:
@@ -51,7 +53,7 @@ async def quick_add(request: Request, token: str, url: str = None):
             raise HTTPException(status_code=403, detail="Invalid token")
         user_id = row.user_id
 
-    # Get URL from query param, form body, or JSON
+    # Get URL from query param or request body
     if not url:
         try:
             form = await request.form()
@@ -68,7 +70,7 @@ async def quick_add(request: Request, token: str, url: str = None):
     if not url or not url.startswith("http"):
         raise HTTPException(status_code=400, detail="url required")
 
-    # Duplicate check
+    # Per-user duplicate check
     with db.session_scope() as session:
         existing = session.query(NodeDB).filter_by(url=url, user_id=user_id).first()
         if existing:
@@ -78,13 +80,8 @@ async def quick_add(request: Request, token: str, url: str = None):
     graph_service = request.app.state.graph_service
 
     loop = asyncio.get_event_loop()
-    node = await loop.run_in_executor(None, lambda: ingestion_service.ingest_url(url=url))
-
-    # Tag with user_id
-    with db.session_scope() as session:
-        db_node = session.query(NodeDB).filter_by(id=node.id).first()
-        if db_node:
-            db_node.user_id = user_id
+    # Pass user_id directly — no second-session patch needed
+    node = await loop.run_in_executor(None, lambda: ingestion_service.ingest_url(url=url, user_id=user_id))
 
     def _process(node_id):
         try:

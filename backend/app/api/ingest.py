@@ -49,14 +49,9 @@ async def ingest_url(request: Request, body: IngestRequest, current_user: dict =
                 url=body.url,
                 canvas_x=body.canvas_x,
                 canvas_y=body.canvas_y,
+                user_id=user_id,
             ),
         )
-
-        # Tag node with user_id
-        with db.session_scope() as s:
-            db_node = s.query(NodeDB).filter_by(id=node.id).first()
-            if db_node:
-                db_node.user_id = user_id
 
         def _safe_process(node_id: str):
             try:
