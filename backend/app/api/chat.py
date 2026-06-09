@@ -121,7 +121,8 @@ async def send_message(
             session_id=session_id,
             user_message=chat_request.message,
             mode=chat_request.mode,
-            user_id=current_user["id"]
+            user_id=current_user["id"],
+            user_email=current_user.get("email", ""),
         )
 
         # Kick off background graph processing for any URLs ingested via chat

@@ -9,14 +9,24 @@ from ..db.database import get_database, UserUsageDB
 logger = structlog.get_logger()
 
 LIMITS = {"free": 100_000, "pro": 2_000_000}
+# superadmin plan has no limit — never rate-limited
+SUPERADMIN_EMAILS = {"nicksable@gmail.com"}
 
 
-def check_limit(user_id: str) -> None:
+def check_limit(user_id: str, email: str = None) -> None:
     """Check if user is over their monthly token limit. Raises HTTPException(402) if over."""
+    # Superadmins are never rate-limited
+    if email and email.lower() in SUPERADMIN_EMAILS:
+        return
+
     db = get_database()
 
     with db.session_scope() as session:
         usage = session.query(UserUsageDB).filter_by(user_id=user_id).first()
+
+        # Superadmin plan in DB also bypasses limits
+        if usage and usage.plan == "superadmin":
+            return
 
         # Create row if missing — new users default to free plan
         if not usage:

@@ -122,7 +122,8 @@ class TacitEngine:
         session_id: str,
         user_message: str,
         mode: Optional[ChatMode] = None,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        user_email: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Process a user message and generate twin response.
@@ -139,7 +140,7 @@ class TacitEngine:
         # Check token limit before processing
         if user_id:
             from .usage import check_limit
-            check_limit(user_id)
+            check_limit(user_id, email=user_email)
 
         # Ensure a DB record exists for this session, tagged with user_id from the start
         self._ensure_conversation(session_id, user_id=user_id)
