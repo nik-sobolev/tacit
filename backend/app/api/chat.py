@@ -142,6 +142,8 @@ async def send_message(
             actions=result.get('actions', [])
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

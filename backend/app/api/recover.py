@@ -69,6 +69,20 @@ async def check_orphaned_nodes(user_id: str):
     }
 
 
+@router.post("/admin/recover/reset-usage/{user_id}")
+async def reset_usage(user_id: str):
+    """Reset token usage counter for a user (admin tool)."""
+    from ..db.database import get_database, UserUsageDB
+    from datetime import datetime
+    db = get_database()
+    with db.session_scope() as session:
+        usage = session.query(UserUsageDB).filter_by(user_id=user_id).first()
+        if usage:
+            usage.tokens_used = 0
+            usage.period_start = datetime.utcnow()
+    return {"reset": True, "user_id": user_id}
+
+
 @router.post("/admin/recover/reprocess/{user_id}")
 async def reprocess_failed_nodes(request: Request, user_id: str):
     """Reset failed nodes to pending and process them in background."""
