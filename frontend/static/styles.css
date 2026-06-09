@@ -72,8 +72,8 @@ body {
 .brand-icon {
     width: 26px;
     height: 26px;
-    border-radius: 6px;
-    background: linear-gradient(135deg, var(--primary), var(--accent));
+    border-radius: 4px;
+    object-fit: contain;
 }
 
 .brand-name {
