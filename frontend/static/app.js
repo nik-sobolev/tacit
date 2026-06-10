@@ -266,6 +266,10 @@ function initCanvas() {
 }
 
 function applyTransform() {
+    if (isMobile()) {
+        document.getElementById('canvasSurface').style.transform = '';
+        return;
+    }
     document.getElementById('canvasSurface').style.transform =
         `translate(${canvasX}px, ${canvasY}px) scale(${canvasScale})`;
 }
