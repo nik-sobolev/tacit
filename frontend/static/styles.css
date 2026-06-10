@@ -1305,10 +1305,12 @@ body {
 
     /* Canvas — list view on mobile */
     #canvasViewport {
+        flex: 1;
         overflow-y: auto !important;
         overflow-x: hidden !important;
         cursor: default !important;
         background: var(--bg);
+        height: 100%;
     }
 
     #canvasSurface {
@@ -1316,10 +1318,11 @@ body {
         position: relative !important;
         width: 100% !important;
         height: auto !important;
+        min-height: 100%;
         display: flex;
         flex-direction: column;
         gap: 12px;
-        padding: 12px;
+        padding: 12px 12px 80px;
     }
 
     .canvas-card {
@@ -1328,7 +1331,10 @@ body {
         top: auto !important;
         width: 100% !important;
         max-width: 100% !important;
+        height: auto !important;
+        overflow: visible !important;
         cursor: pointer;
+        z-index: 1;
     }
 
     /* Hide SVG edges on mobile */
