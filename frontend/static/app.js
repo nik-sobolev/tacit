@@ -221,7 +221,7 @@ function initCanvas() {
             canvasY = e.clientY - panStartY;
             applyTransform();
         }
-        if (isDraggingCard && dragCard) {
+        if (isDraggingCard && dragCard && !isMobile()) {
             const rect = document.getElementById('canvasViewport').getBoundingClientRect();
             const x = (e.clientX - rect.left - canvasX) / canvasScale - dragOffsetX;
             const y = (e.clientY - rect.top - canvasY) / canvasScale - dragOffsetY;
@@ -240,7 +240,7 @@ function initCanvas() {
             const nodeId = dragCard.dataset.nodeId;
             const x = parseFloat(dragCard.style.left);
             const y = parseFloat(dragCard.style.top);
-            saveNodePosition(nodeId, x, y);
+            if (!isNaN(x) && !isNaN(y)) saveNodePosition(nodeId, x, y);
             isDraggingCard = false;
             dragCard.style.cursor = 'grab';
             dragCard = null;
@@ -278,6 +278,12 @@ function resetView() {
 }
 
 function scrollToNode(node) {
+    if (isMobile()) {
+        // Mobile: scroll the viewport to the card element
+        const card = nodeElements[node.id];
+        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+    }
     const viewport = document.getElementById('canvasViewport');
     canvasX = -node.canvas_x * canvasScale + viewport.clientWidth / 2;
     canvasY = -node.canvas_y * canvasScale + viewport.clientHeight / 2;
@@ -456,9 +462,21 @@ function drawEdges(edges) {
 }
 
 function getCardCenter(cardEl) {
+    const left = parseFloat(cardEl.style.left);
+    const top = parseFloat(cardEl.style.top);
+    if (isNaN(left) || isNaN(top)) {
+        // Mobile: card has no inline position, use DOM offset
+        const surface = document.getElementById('canvasSurface');
+        const surfaceRect = surface.getBoundingClientRect();
+        const cardRect = cardEl.getBoundingClientRect();
+        return {
+            x: (cardRect.left - surfaceRect.left) + cardEl.offsetWidth / 2,
+            y: (cardRect.top - surfaceRect.top) + cardEl.offsetHeight / 2,
+        };
+    }
     return {
-        x: parseFloat(cardEl.style.left) + cardEl.offsetWidth / 2,
-        y: parseFloat(cardEl.style.top) + cardEl.offsetHeight / 2,
+        x: left + cardEl.offsetWidth / 2,
+        y: top + cardEl.offsetHeight / 2,
     };
 }
 
@@ -533,11 +551,11 @@ async function submitUrl() {
         return;
     }
 
-    // Place new card near center of current viewport
+    // Place new card near center of current viewport (desktop) or stacked (mobile)
     const viewport = document.getElementById('canvasViewport');
     const vw = viewport.clientWidth, vh = viewport.clientHeight;
-    const cx = (-canvasX + vw / 2) / canvasScale + (Math.random() * 200 - 100);
-    const cy = (-canvasY + vh / 2) / canvasScale + (Math.random() * 200 - 100);
+    const cx = isMobile() ? 100 + graphData.nodes.length * 10 : (-canvasX + vw / 2) / canvasScale + (Math.random() * 200 - 100);
+    const cy = isMobile() ? 100 + graphData.nodes.length * 10 : (-canvasY + vh / 2) / canvasScale + (Math.random() * 200 - 100);
 
     try {
         const res = await apiFetch(`${API_BASE}/ingest`, {
@@ -1269,8 +1287,8 @@ async function sendMessage() {
                 if (action.type === 'ingest_started') {
                     if (nodeElements[action.node_id]) continue;
                     const vp = document.getElementById('canvasViewport');
-                    const cx = (-canvasX + vp.clientWidth / 2) / canvasScale + (Math.random() * 200 - 100);
-                    const cy = (-canvasY + vp.clientHeight / 2) / canvasScale + (Math.random() * 200 - 100);
+                    const cx = isMobile() ? 100 + graphData.nodes.length * 10 : (-canvasX + vp.clientWidth / 2) / canvasScale + (Math.random() * 200 - 100);
+                    const cy = isMobile() ? 100 + graphData.nodes.length * 10 : (-canvasY + vp.clientHeight / 2) / canvasScale + (Math.random() * 200 - 100);
                     const placeholderNode = {
                         id: action.node_id, type: action.node_type || 'webpage',
                         title: action.title || action.url, summary: null,
@@ -1442,6 +1460,7 @@ function clearCategoryFilter() {
 }
 
 function autoArrangeByCategory() {
+    if (isMobile()) return; // position-based arrangement doesn't apply on mobile
     // Group nodes by category
     const groups = {};
     graphData.nodes.forEach(node => {

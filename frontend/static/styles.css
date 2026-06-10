@@ -1332,7 +1332,7 @@ body {
         width: 100% !important;
         max-width: 100% !important;
         height: auto !important;
-        overflow: visible !important;
+        overflow: hidden !important;
         cursor: pointer;
         z-index: 1;
     }
