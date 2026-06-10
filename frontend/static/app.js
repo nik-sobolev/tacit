@@ -326,8 +326,13 @@ function createCard(node) {
     const cat = (node.metadata && node.metadata.category) || '';
     card.dataset.category = cat;
     if (cat) card.style.borderLeftColor = categoryColor(cat);
-    card.style.left = (node.canvas_x || 100) + 'px';
-    card.style.top = (node.canvas_y || 100) + 'px';
+    if (isMobile()) {
+        card.style.left = '';
+        card.style.top = '';
+    } else {
+        card.style.left = (node.canvas_x || 100) + 'px';
+        card.style.top = (node.canvas_y || 100) + 'px';
+    }
 
     card.innerHTML = buildCardHTML(node);
 
