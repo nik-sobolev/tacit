@@ -1541,9 +1541,10 @@ function autoArrangeByCategory() {
                 const ny = currentY + Math.floor(i / colsPerGroup) * (cardH + gap);
                 const card = nodeElements[node.id];
                 if (card) {
-                    card.style.transition = 'left 0.5s ease, top 0.5s ease';
+                    card.style.transition = 'left 0.5s ease, top 0.5s ease, transform 0.5s ease';
                     card.style.left = nx + 'px';
                     card.style.top = ny + 'px';
+                    card.style.transform = '';
                     setTimeout(() => { card.style.transition = ''; }, 600);
                     saveNodePosition(node.id, nx, ny);
                 }
