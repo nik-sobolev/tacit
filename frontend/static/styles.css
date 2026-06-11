@@ -1333,6 +1333,7 @@ body {
         transform: none !important;
         position: relative !important;
         width: 100% !important;
+        min-width: 0 !important;
         height: auto !important;
         min-height: 100%;
         display: flex;
