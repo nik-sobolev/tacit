@@ -742,7 +742,7 @@ async function openDetail(nodeId) {
         const tagsHTML = (node.tags || []).map(t => `<span class="card-tag">${escapeHtml(t)}</span>`).join('');
 
         content.innerHTML = `
-            ${node.thumbnail_url ? `<img class="detail-thumb" src="${escapeHtml(node.thumbnail_url)}" alt="" onerror="this.style.display='none'" />` : ''}
+            ${node.thumbnail_url ? `<img class="${node.type === 'image' ? 'detail-thumb-image' : 'detail-thumb'}" src="${escapeHtml(node.thumbnail_url)}" alt="" onerror="this.style.display='none'" />` : ''}
             <div class="detail-section">
                 <h2 class="detail-title">${escapeHtml(node.title || 'Untitled')}</h2>
                 ${node.url ? `<a class="detail-url" href="${escapeHtml(node.url)}" target="_blank" rel="noopener">${escapeHtml(node.url)}</a>` : ''}

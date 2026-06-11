@@ -818,6 +818,13 @@ body {
 .card-text     { border-top: 2px solid var(--accent); }
 .card-image    { border-top: 2px solid #f39c12; }
 
+.card-image .card-thumb {
+    aspect-ratio: auto;
+    max-height: 280px;
+    object-fit: contain;
+    background: var(--bg);
+}
+
 .card-header {
     display: flex;
     align-items: center;
@@ -1072,6 +1079,15 @@ body {
     object-fit: cover;
     border-radius: 8px;
     margin-bottom: 14px;
+}
+
+.detail-thumb-image {
+    width: 100%;
+    max-height: 60vh;
+    object-fit: contain;
+    border-radius: 8px;
+    margin-bottom: 14px;
+    background: var(--bg);
 }
 
 .detail-section { margin-bottom: 18px; }
@@ -1339,6 +1355,18 @@ body {
 
     /* Hide SVG edges on mobile */
     #edgesLayer { display: none; }
+
+    /* Detail panel — full screen on mobile */
+    .node-detail-panel {
+        position: fixed !important;
+        top: 48px !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 56px !important;
+        width: 100% !important;
+        border-left: none;
+        border-top: 1px solid var(--border);
+    }
 
     /* Chat panel — full screen when active */
     .chat-panel {

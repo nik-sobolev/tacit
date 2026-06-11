@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Depends
 
 from ..core.auth import get_current_user
 from ..db.database import get_database, NodeDB
+from ..services.storage_service import upload_image as store_image
 
 router = APIRouter()
 
@@ -37,28 +38,19 @@ async def upload_image(
                 detail="Image too large. Maximum size: 20MB"
             )
 
-        # Create uploads/images directory if it doesn't exist
-        from ..db.database import DEFAULT_DATA_DIR
-        images_dir = DEFAULT_DATA_DIR / "uploads" / "images"
-        images_dir.mkdir(parents=True, exist_ok=True)
-
-        # Save file with UUID prefix to avoid collisions
         node_id = str(uuid.uuid4())
         sanitized_name = file.filename.replace(" ", "_")
         saved_filename = f"{node_id}_{sanitized_name}"
-        saved_path = images_dir / saved_filename
 
-        with open(saved_path, 'wb') as f:
-            f.write(content)
+        thumbnail_url = store_image(content, saved_filename, file_ext)
 
-        # Create NodeDB entry
         db = get_database()
         node = NodeDB(
             id=node_id,
             user_id=current_user["id"],
             type="image",
             title=file.filename,
-            thumbnail_url=f"/uploads/images/{saved_filename}",
+            thumbnail_url=thumbnail_url,
             canvas_x=100.0,
             canvas_y=100.0,
             status="done",
@@ -73,7 +65,7 @@ async def upload_image(
             "node_id": node_id,
             "type": "image",
             "title": file.filename,
-            "thumbnail_url": f"/uploads/images/{saved_filename}",
+            "thumbnail_url": thumbnail_url,
             "status": "done",
             "canvas_x": 100.0,
             "canvas_y": 100.0,
