@@ -50,9 +50,15 @@ async def get_current_user(request: Request) -> dict:
     token = auth[7:]
     try:
         payload = _verify_token(token)
+        # Clerk puts email in `email` or inside `email_addresses[0].email_address`
+        email = payload.get("email", "")
+        if not email:
+            addrs = payload.get("email_addresses", [])
+            if addrs and isinstance(addrs, list):
+                email = addrs[0].get("email_address", "") if isinstance(addrs[0], dict) else ""
         return {
             "id": payload["sub"],
-            "email": payload.get("email", ""),
+            "email": email,
         }
     except Exception as e:
         logger.warning("auth_failed", error=str(e))

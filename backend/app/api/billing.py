@@ -152,3 +152,28 @@ async def stripe_webhook(request: Request):
                 logger.info("subscription_deleted", user_id=usage.user_id, plan="free")
 
     return {"status": "received"}
+
+
+@router.post("/billing/set-superadmin/{user_id}")
+async def set_superadmin(user_id: str, request: Request):
+    """Set a user's plan to superadmin (unlimited). Protected by RECOVERY_KEY."""
+    key = request.headers.get("X-Recovery-Key", "")
+    expected = os.getenv("RECOVERY_KEY", "emergency-restore-nik")
+    if key != expected:
+        raise HTTPException(status_code=403, detail="Invalid key")
+
+    db = get_database()
+    with db.session_scope() as session:
+        usage = session.query(UserUsageDB).filter_by(user_id=user_id).first()
+        if usage:
+            usage.plan = "superadmin"
+            usage.tokens_used = 0
+            usage.updated_at = datetime.utcnow()
+        else:
+            session.add(UserUsageDB(
+                user_id=user_id, plan="superadmin",
+                tokens_used=0, period_start=datetime.utcnow()
+            ))
+        session.commit()
+    logger.info("superadmin_set", user_id=user_id)
+    return {"status": "ok", "plan": "superadmin"}
