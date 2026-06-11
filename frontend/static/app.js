@@ -1509,50 +1509,62 @@ function autoArrangeByCategory() {
     });
 
     const cardW = 280, cardH = 320, gap = 20, colsPerGroup = 3;
-    const groupGapX = 60, groupGapY = 60;
-    const groupsPerRow = 2;
-    const groupStride = colsPerGroup * (cardW + gap) + groupGapX;
+    const groupGapY = 60, labelH = 34;
+    const colStride = colsPerGroup * (cardW + gap) + 80; // horizontal distance between columns
 
     const groupNames = Object.keys(groups).sort();
     document.querySelectorAll('.cluster-label').forEach(el => el.remove());
 
-    // Process groups row by row so all groups in the same row start at the same Y
-    let currentY = 60;
-    for (let r = 0; r < groupNames.length; r += groupsPerRow) {
-        const rowCats = groupNames.slice(r, r + groupsPerRow);
+    // Two-column masonry: assign each group to the shorter column (greedy)
+    const NUM_COLS = 2;
+    const colY = Array(NUM_COLS).fill(60); // current y-cursor per column
 
-        // Height of this row = tallest group in the row
-        const maxRows = Math.max(...rowCats.map(c => Math.ceil(groups[c].length / colsPerGroup)));
+    groupNames.forEach(cat => {
+        const nodes = groups[cat];
+        const rows = Math.ceil(nodes.length / colsPerGroup);
 
-        rowCats.forEach((cat, colIdx) => {
-            const groupX = 60 + colIdx * groupStride;
-            const nodes = groups[cat];
+        // Pick the shorter column
+        const colIdx = colY[0] <= colY[1] ? 0 : 1;
+        const groupX = 60 + colIdx * colStride;
+        const groupY = colY[colIdx];
 
-            const label = document.createElement('div');
-            label.className = 'cluster-label';
-            label.style.left = groupX + 'px';
-            label.style.top = (currentY - 30) + 'px';
-            label.style.color = categoryColor(cat);
-            label.textContent = cat;
-            document.getElementById('canvasSurface').appendChild(label);
+        const label = document.createElement('div');
+        label.className = 'cluster-label';
+        label.style.left = groupX + 'px';
+        label.style.top = groupY + 'px';
+        label.style.color = categoryColor(cat);
+        label.textContent = cat;
+        document.getElementById('canvasSurface').appendChild(label);
 
-            nodes.forEach((node, i) => {
-                const nx = groupX + (i % colsPerGroup) * (cardW + gap);
-                const ny = currentY + Math.floor(i / colsPerGroup) * (cardH + gap);
-                const card = nodeElements[node.id];
-                if (card) {
-                    card.style.transition = 'left 0.5s ease, top 0.5s ease, transform 0.5s ease';
-                    card.style.left = nx + 'px';
-                    card.style.top = ny + 'px';
-                    card.style.transform = '';
-                    setTimeout(() => { card.style.transition = ''; }, 600);
-                    saveNodePosition(node.id, nx, ny);
-                }
-            });
+        nodes.forEach((node, i) => {
+            const nx = groupX + (i % colsPerGroup) * (cardW + gap);
+            const ny = groupY + labelH + Math.floor(i / colsPerGroup) * (cardH + gap);
+            const card = nodeElements[node.id];
+            if (card) {
+                card.style.transition = 'left 0.5s ease, top 0.5s ease, transform 0.5s ease';
+                card.style.left = nx + 'px';
+                card.style.top = ny + 'px';
+                card.style.transform = '';
+                setTimeout(() => { card.style.transition = ''; }, 600);
+                saveNodePosition(node.id, nx, ny);
+            }
         });
 
-        currentY += maxRows * (cardH + gap) + groupGapY;
-    }
+        colY[colIdx] += labelH + rows * (cardH + gap) + groupGapY;
+    });
+
+    // Zoom to fit all arranged cards
+    setTimeout(() => {
+        const totalW = 60 + NUM_COLS * colStride;
+        const totalH = Math.max(...colY) + 60;
+        const vp = document.getElementById('canvasViewport');
+        const scaleX = vp.clientWidth / totalW;
+        const scaleY = vp.clientHeight / totalH;
+        canvasScale = Math.min(scaleX, scaleY, 1.0);
+        canvasX = 0;
+        canvasY = 0;
+        applyTransform();
+    }, 620);
 
     setTimeout(() => drawEdges(graphData.edges), 600);
     showToast('Arranged by category', 'success');
