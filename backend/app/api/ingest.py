@@ -2,11 +2,14 @@
 
 import asyncio
 import structlog
+from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 
 from ..db.database import get_database, NodeDB
 from ..core.auth import get_current_user
+
+_UNSUPPORTED_HOSTS = {"x.com", "twitter.com", "t.co"}
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -23,6 +26,13 @@ async def ingest_url(request: Request, body: IngestRequest, current_user: dict =
     """Ingest a URL for the current user."""
     db = get_database()
     user_id = current_user["id"]
+
+    host = urlparse(body.url).netloc.lower().replace("www.", "")
+    if host in _UNSUPPORTED_HOSTS:
+        raise HTTPException(
+            status_code=400,
+            detail="X/Twitter links can't be ingested (they require a login). Paste the text content into chat instead and Tacit will save it as a note."
+        )
 
     # Per-user duplicate check
     with db.session_scope() as dup_session:
