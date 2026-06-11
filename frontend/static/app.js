@@ -1500,8 +1500,7 @@ function triggerCanvasChaos(positions) {
 }
 
 function autoArrangeByCategory() {
-    if (isMobile()) return; // position-based arrangement doesn't apply on mobile
-    // Group nodes by category
+    if (isMobile()) return;
     const groups = {};
     graphData.nodes.forEach(node => {
         const cat = (node.metadata && node.metadata.category) || 'Uncategorized';
@@ -1510,49 +1509,49 @@ function autoArrangeByCategory() {
     });
 
     const cardW = 280, cardH = 320, gap = 20, colsPerGroup = 3;
-    const groupGapX = 100, groupGapY = 80;
-    let groupX = 60, groupY = 60;
-    const groupNames = Object.keys(groups).sort();
-    let col = 0;
+    const groupGapX = 60, groupGapY = 60;
+    const groupsPerRow = 2;
+    const groupStride = colsPerGroup * (cardW + gap) + groupGapX;
 
-    // Remove old cluster labels
+    const groupNames = Object.keys(groups).sort();
     document.querySelectorAll('.cluster-label').forEach(el => el.remove());
 
-    groupNames.forEach(cat => {
-        const nodes = groups[cat];
-        const rows = Math.ceil(nodes.length / colsPerGroup);
+    // Process groups row by row so all groups in the same row start at the same Y
+    let currentY = 60;
+    for (let r = 0; r < groupNames.length; r += groupsPerRow) {
+        const rowCats = groupNames.slice(r, r + groupsPerRow);
 
-        // Add cluster label
-        const label = document.createElement('div');
-        label.className = 'cluster-label';
-        label.style.left = groupX + 'px';
-        label.style.top = (groupY - 30) + 'px';
-        label.style.color = categoryColor(cat);
-        label.textContent = cat;
-        document.getElementById('canvasSurface').appendChild(label);
+        // Height of this row = tallest group in the row
+        const maxRows = Math.max(...rowCats.map(c => Math.ceil(groups[c].length / colsPerGroup)));
 
-        nodes.forEach((node, i) => {
-            const nx = groupX + (i % colsPerGroup) * (cardW + gap);
-            const ny = groupY + Math.floor(i / colsPerGroup) * (cardH + gap);
-            const card = nodeElements[node.id];
-            if (card) {
-                card.style.transition = 'left 0.5s ease, top 0.5s ease';
-                card.style.left = nx + 'px';
-                card.style.top = ny + 'px';
-                setTimeout(() => { card.style.transition = ''; }, 600);
-                saveNodePosition(node.id, nx, ny);
-            }
+        rowCats.forEach((cat, colIdx) => {
+            const groupX = 60 + colIdx * groupStride;
+            const nodes = groups[cat];
+
+            const label = document.createElement('div');
+            label.className = 'cluster-label';
+            label.style.left = groupX + 'px';
+            label.style.top = (currentY - 30) + 'px';
+            label.style.color = categoryColor(cat);
+            label.textContent = cat;
+            document.getElementById('canvasSurface').appendChild(label);
+
+            nodes.forEach((node, i) => {
+                const nx = groupX + (i % colsPerGroup) * (cardW + gap);
+                const ny = currentY + Math.floor(i / colsPerGroup) * (cardH + gap);
+                const card = nodeElements[node.id];
+                if (card) {
+                    card.style.transition = 'left 0.5s ease, top 0.5s ease';
+                    card.style.left = nx + 'px';
+                    card.style.top = ny + 'px';
+                    setTimeout(() => { card.style.transition = ''; }, 600);
+                    saveNodePosition(node.id, nx, ny);
+                }
+            });
         });
 
-        // Advance position for next group
-        col++;
-        if (col % 2 === 0) {
-            groupX = 60;
-            groupY += rows * (cardH + gap) + groupGapY;
-        } else {
-            groupX += colsPerGroup * (cardW + gap) + groupGapX;
-        }
-    });
+        currentY += maxRows * (cardH + gap) + groupGapY;
+    }
 
     setTimeout(() => drawEdges(graphData.edges), 600);
     showToast('Arranged by category', 'success');
