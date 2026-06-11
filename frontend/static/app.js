@@ -1427,7 +1427,10 @@ async function loadCategories() {
             item.innerHTML = `<span class="category-dot" style="background:${color}"></span>
                 <span class="category-name">${escapeHtml(cat.name)}</span>
                 <span class="category-count">${cat.count}</span>`;
-            item.addEventListener('click', () => filterByCategory(cat.name));
+            item.addEventListener('click', () => {
+                filterByCategory(cat.name);
+                autoArrangeByCategory();
+            });
             list.appendChild(item);
         });
     } catch (e) {
