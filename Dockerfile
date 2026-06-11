@@ -13,6 +13,9 @@ WORKDIR /app/backend
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download chromadb ONNX embedding model at build time so cold starts don't fail
+RUN python -c "from chromadb.utils.embedding_functions import DefaultEmbeddingFunction; DefaultEmbeddingFunction()"
+
 # Install Playwright browser (for JS-heavy webpage ingestion)
 RUN playwright install chromium --with-deps
 
