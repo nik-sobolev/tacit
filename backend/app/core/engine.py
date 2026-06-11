@@ -763,6 +763,15 @@ The user is looking for specific information from their knowledge base.
 
     _CHAOS_TOOLS = [
         {
+            "name": "arrange_canvas",
+            "description": (
+                "Auto-arrange all cards on the canvas into tidy category groups. "
+                "Call this when the user says 'arrange', 'clean', 'clean up', 'tidy', "
+                "'organize my canvas', 'sort by category', etc."
+            ),
+            "input_schema": {"type": "object", "properties": {}, "required": []}
+        },
+        {
             "name": "chaos_canvas",
             "description": (
                 "Scatter all cards on the user's canvas to wild, random positions "
@@ -1146,6 +1155,10 @@ The user is looking for specific information from their knowledge base.
                 "title": title,
                 "message": "Note saved — the card will appear on your canvas shortly.",
             }
+
+        if name == "arrange_canvas":
+            actions.append({"type": "arrange_canvas"})
+            return {"success": True, "message": "Arranging canvas by category."}
 
         if name == "chaos_canvas":
             return self._execute_chaos_canvas(actions, user_id=getattr(self, "_current_user_id", None))

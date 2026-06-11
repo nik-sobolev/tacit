@@ -1288,6 +1288,9 @@ async function sendMessage() {
                     graphData.edges = graphData.edges.filter(e => e.id !== action.edge_id);
                     edgesChanged++;
                 }
+                if (action.type === 'arrange_canvas') {
+                    autoArrangeByCategory();
+                }
                 if (action.type === 'chaos_canvas') {
                     triggerCanvasChaos(action.positions || []);
                 }
