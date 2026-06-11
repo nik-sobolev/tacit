@@ -6,6 +6,7 @@ python-multipart==0.0.6
 # AI & Embeddings
 anthropic>=0.40.0
 chromadb==0.4.22
+numpy<2.0
 
 # Document Processing
 PyPDF2==3.0.1
