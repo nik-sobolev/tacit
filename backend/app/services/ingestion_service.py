@@ -28,6 +28,8 @@ def detect_url_type(url: str) -> str:
         return "tiktok"
     if host in ("instagram.com",) or "instagram.com" in host:
         return "instagram"
+    if host in ("x.com", "twitter.com", "t.co"):
+        return "tweet"
     return "webpage"
 
 
@@ -48,6 +50,8 @@ class IngestionService:
                 data = self._extract_youtube(url)
             elif content_type in ("tiktok", "instagram"):
                 data = self._extract_social_video(url)
+            elif content_type == "tweet":
+                data = self._extract_tweet(url)
             else:
                 data = self._extract_webpage(url)
         except Exception as e:
@@ -266,6 +270,52 @@ class IngestionService:
 
     # Sites that require JS rendering or block simple HTTP requests
     BROWSER_REQUIRED_DOMAINS = {"x.com", "twitter.com", "instagram.com", "threads.net", "facebook.com"}
+
+    # ==================== TWITTER / X ====================
+
+    def _extract_tweet(self, url: str) -> Dict[str, Any]:
+        """Extract tweet content via Twitter oEmbed API (no auth required)."""
+        import re as _re
+        try:
+            oembed_url = f"https://publish.twitter.com/oembed?url={url}&omit_script=true"
+            with httpx.Client(timeout=10, follow_redirects=True) as client:
+                resp = client.get(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
+                resp.raise_for_status()
+                data = resp.json()
+
+            author = data.get("author_name", "")
+            html = data.get("html", "")
+
+            # Extract plain text from blockquote HTML
+            text = _re.sub(r"<a[^>]*>.*?</a>", "", html, flags=_re.DOTALL)
+            text = _re.sub(r"<[^>]+>", "", text).strip()
+            text = _re.sub(r"\s+", " ", text)
+
+            # Extract handle from author_url
+            author_url = data.get("author_url", "")
+            handle = author_url.rstrip("/").split("/")[-1] if author_url else ""
+            handle_str = f"@{handle}" if handle else ""
+
+            title = f"{author} {handle_str}: {text[:120]}" if text else f"Tweet by {author}"
+
+            return {
+                "title": title[:400],
+                "content": text,
+                "thumbnail_url": f"https://unavatar.io/twitter/{handle}" if handle else None,
+                "metadata": {
+                    "author": author,
+                    "handle": handle,
+                    "tweet_url": url,
+                },
+            }
+        except Exception as e:
+            logger.warning("tweet_oembed_failed", url=url, error=str(e))
+            return {
+                "title": f"Tweet: {url}",
+                "content": "",
+                "thumbnail_url": None,
+                "metadata": {"tweet_url": url},
+            }
 
     # ==================== WEB PAGES ====================
 

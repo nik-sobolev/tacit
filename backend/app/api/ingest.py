@@ -27,13 +27,6 @@ async def ingest_url(request: Request, body: IngestRequest, current_user: dict =
     db = get_database()
     user_id = current_user["id"]
 
-    host = urlparse(body.url).netloc.lower().replace("www.", "")
-    if host in _UNSUPPORTED_HOSTS:
-        raise HTTPException(
-            status_code=400,
-            detail="X/Twitter links can't be ingested (they require a login). Paste the text content into chat instead and Tacit will save it as a note."
-        )
-
     # Per-user duplicate check
     with db.session_scope() as dup_session:
         existing = dup_session.query(NodeDB).filter_by(url=body.url, user_id=user_id).first()

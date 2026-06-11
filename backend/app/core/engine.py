@@ -1064,8 +1064,6 @@ The user is looking for specific information from their knowledge base.
                 return {"error": "A valid http/https URL is required"}
 
             host = urlparse(url).netloc.lower().replace("www.", "")
-            if host in {"x.com", "twitter.com"}:
-                return {"error": "X/Twitter URLs can't be ingested via chat. Use the URL bar instead."}
 
             with self.db.session_scope() as s:
                 existing = s.query(NodeDB).filter_by(url=url).first()
