@@ -1356,6 +1356,14 @@ body {
     /* Hide SVG edges on mobile */
     #edgesLayer { display: none; }
 
+    /* Hide thumbnails on mobile — dark og:images just show as black rectangles */
+    .card-thumb { display: none; }
+    /* Exception: image cards ARE the thumbnail, show them constrained */
+    .card-image .card-thumb {
+        display: block;
+        max-height: 200px;
+    }
+
     /* Detail panel — full screen on mobile */
     .node-detail-panel {
         position: fixed !important;
