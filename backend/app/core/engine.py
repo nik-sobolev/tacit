@@ -185,6 +185,9 @@ class TacitEngine:
         enable_canvas_tools = self._has_linking_intent(user_message)
         enable_ingest_tool = True  # URL + note tools always available; Claude decides when to call each
 
+        # Stash user_id so chaos_canvas tool can scope to the right user
+        self._current_user_id = user_id
+
         # Generate response
         response_text, actions, usage = self._generate_response(
             system_prompt,
@@ -758,6 +761,19 @@ The user is looking for specific information from their knowledge base.
 
     # ==================== CANVAS TOOLS ====================
 
+    _CHAOS_TOOLS = [
+        {
+            "name": "chaos_canvas",
+            "description": (
+                "Scatter all cards on the user's canvas to wild, random positions "
+                "as a fun game / easter egg. Call this when the user asks to 'make it messy', "
+                "'chaos mode', 'scatter everything', 'go crazy', 'mess up my canvas', etc. "
+                "It's a playful feature — lean into it with a fun response."
+            ),
+            "input_schema": {"type": "object", "properties": {}, "required": []}
+        }
+    ]
+
     _CANVAS_TOOLS = [
         {
             "name": "search_canvas_nodes",
@@ -1131,7 +1147,52 @@ The user is looking for specific information from their knowledge base.
                 "message": "Note saved — the card will appear on your canvas shortly.",
             }
 
+        if name == "chaos_canvas":
+            return self._execute_chaos_canvas(actions, user_id=getattr(self, "_current_user_id", None))
+
         return {"error": f"Unknown tool: {name}"}
+
+    def _execute_chaos_canvas(self, actions: List[Dict], user_id: Optional[str] = None) -> Dict:
+        """Scatter all canvas nodes to chaotic random positions."""
+        import random
+        try:
+            with self.db.session_scope() as s:
+                q = s.query(NodeDB)
+                if user_id:
+                    q = q.filter(NodeDB.user_id == user_id)
+                nodes = q.all()
+                if not nodes:
+                    return {"success": False, "message": "No nodes on canvas to scatter."}
+
+                positions = []
+                n = len(nodes)
+                for i, node in enumerate(nodes):
+                    # Mix of strategies: pile, flung far, diagonal drift
+                    roll = random.random()
+                    if roll < 0.25:
+                        # Pile up in the middle — overlapping chaos
+                        x = 600 + random.uniform(-120, 120)
+                        y = 400 + random.uniform(-120, 120)
+                    elif roll < 0.5:
+                        # Flung to a random corner
+                        x = random.choice([-200, 2200]) + random.uniform(-200, 200)
+                        y = random.choice([-200, 1800]) + random.uniform(-200, 200)
+                    else:
+                        # Pure scatter across large canvas
+                        x = random.uniform(-300, 2800)
+                        y = random.uniform(-300, 2200)
+
+                    rotation = random.uniform(-18, 18)
+                    node.canvas_x = x
+                    node.canvas_y = y
+                    positions.append({"id": node.id, "x": x, "y": y, "rotation": rotation})
+
+            actions.append({"type": "chaos_canvas", "positions": positions})
+            logger.info("chaos_canvas_executed", node_count=len(positions))
+            return {"success": True, "scattered": len(positions)}
+        except Exception as e:
+            logger.error("chaos_canvas_error", error=str(e))
+            return {"error": str(e)}
 
     def _execute_search_web(self, query: str) -> Dict[str, Any]:
         """Search the web using Haiku + Anthropic's built-in web search tool."""
@@ -1197,8 +1258,8 @@ The user is looking for specific information from their knowledge base.
         actions: List[Dict] = []
         last_usage = None
 
-        # People + search always enabled; canvas and ingest tools conditionally
-        tools = list(self._PEOPLE_TOOLS) + list(self._SEARCH_TOOLS)
+        # People + search + chaos always enabled; canvas and ingest tools conditionally
+        tools = list(self._PEOPLE_TOOLS) + list(self._SEARCH_TOOLS) + list(self._CHAOS_TOOLS)
         if enable_canvas_tools:
             tools.extend(self._CANVAS_TOOLS)
         if enable_ingest_tool:

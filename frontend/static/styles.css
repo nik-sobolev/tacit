@@ -274,6 +274,11 @@ body {
 /* ==================== CANVAS CARD STATES ==================== */
 
 .canvas-card { border-left: 3px solid transparent; transition: opacity 0.3s, filter 0.3s; }
+.canvas-card.card-chaos {
+    transition: left 1.4s cubic-bezier(0.68, -0.55, 0.27, 1.55),
+                top  1.4s cubic-bezier(0.68, -0.55, 0.27, 1.55),
+                transform 1.4s cubic-bezier(0.68, -0.55, 0.27, 1.55) !important;
+}
 .canvas-card.dimmed { opacity: 0.15; filter: grayscale(0.8); pointer-events: none; }
 .canvas-card.highlighted { box-shadow: 0 0 12px rgba(192, 86, 33, 0.3); }
 .canvas-card.card-duplicate {

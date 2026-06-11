@@ -1288,6 +1288,9 @@ async function sendMessage() {
                     graphData.edges = graphData.edges.filter(e => e.id !== action.edge_id);
                     edgesChanged++;
                 }
+                if (action.type === 'chaos_canvas') {
+                    triggerCanvasChaos(action.positions || []);
+                }
                 if (action.type === 'ingest_started') {
                     if (nodeElements[action.node_id]) continue;
                     const vp = document.getElementById('canvasViewport');
@@ -1461,6 +1464,33 @@ function clearCategoryFilter() {
     }
     document.querySelectorAll('.category-item').forEach(el => el.classList.remove('active'));
     drawEdges(graphData.edges);
+}
+
+function triggerCanvasChaos(positions) {
+    // Add transition class to all cards so they animate smoothly to chaos positions
+    Object.values(nodeElements).forEach(card => card.classList.add('card-chaos'));
+
+    positions.forEach(({ id, x, y, rotation }) => {
+        const card = nodeElements[id];
+        if (!card) return;
+        card.style.left = x + 'px';
+        card.style.top = y + 'px';
+        card.style.transform = `rotate(${rotation}deg)`;
+        // Update in-memory graph data
+        const node = graphData.nodes.find(n => n.id === id);
+        if (node) { node.canvas_x = x; node.canvas_y = y; }
+    });
+
+    drawEdges(graphData.edges);
+
+    // Remove transition class after animation completes
+    setTimeout(() => {
+        Object.values(nodeElements).forEach(card => {
+            card.classList.remove('card-chaos');
+        });
+    }, 1600);
+
+    showToast('🌪 Canvas scattered!', 'success');
 }
 
 function autoArrangeByCategory() {
