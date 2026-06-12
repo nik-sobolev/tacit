@@ -150,11 +150,11 @@ async def send_message(
 
 
 @router.get("/chat/history/{session_id}")
-async def get_chat_history(request: Request, session_id: str):
-    """Get conversation history for a session"""
+async def get_chat_history(request: Request, session_id: str, current_user: dict = Depends(get_current_user)):
+    """Get conversation history for a session (requires auth)"""
     try:
         engine = request.app.state.engine
-        conversation = engine.get_conversation(session_id)
+        conversation = engine.get_conversation(session_id, user_id=current_user["id"])
 
         return {
             "session_id": session_id,
@@ -167,11 +167,11 @@ async def get_chat_history(request: Request, session_id: str):
 
 
 @router.delete("/chat/{session_id}")
-async def clear_chat(request: Request, session_id: str):
-    """Clear conversation history for a session"""
+async def clear_chat(request: Request, session_id: str, current_user: dict = Depends(get_current_user)):
+    """Clear conversation history for a session (requires auth)"""
     try:
         engine = request.app.state.engine
-        engine.clear_conversation(session_id)
+        engine.clear_conversation(session_id, user_id=current_user["id"])
 
         return {"success": True, "session_id": session_id}
 
