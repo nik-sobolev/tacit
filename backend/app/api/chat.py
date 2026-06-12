@@ -244,8 +244,8 @@ async def list_conversations(
 
 
 @router.get("/people")
-async def list_people(request: Request):
-    """List all remembered people ordered by most recently mentioned"""
+async def list_people(request: Request, current_user: dict = Depends(get_current_user)):
+    """List all remembered people for the current user ordered by most recently mentioned"""
     from ..db.database import get_database, PersonDB
     from sqlalchemy import desc
     db = get_database()
@@ -253,6 +253,7 @@ async def list_people(request: Request):
     try:
         people = (
             session.query(PersonDB)
+            .filter(PersonDB.user_id == current_user["id"])
             .order_by(desc(PersonDB.last_mentioned_at))
             .all()
         )
@@ -277,13 +278,13 @@ async def list_people(request: Request):
 
 
 @router.delete("/people/{person_id}")
-async def delete_person(person_id: str):
-    """Delete a person from memory"""
+async def delete_person(person_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a person from memory (enforces ownership)"""
     from ..db.database import get_database, PersonDB
     db = get_database()
     session = db.get_session()
     try:
-        person = session.query(PersonDB).filter_by(id=person_id).first()
+        person = session.query(PersonDB).filter_by(id=person_id, user_id=current_user["id"]).first()
         if not person:
             raise HTTPException(status_code=404, detail="Person not found")
         session.delete(person)
