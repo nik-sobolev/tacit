@@ -158,9 +158,11 @@ async def stripe_webhook(request: Request):
 @router.post("/billing/set-superadmin/{user_id}")
 async def set_superadmin(user_id: str, request: Request):
     """Set a user's plan to superadmin (unlimited). Protected by RECOVERY_KEY."""
+    recovery_key = os.getenv("RECOVERY_KEY")
+    if not recovery_key:
+        raise HTTPException(status_code=500, detail="Recovery key not configured")
     key = request.headers.get("X-Recovery-Key", "")
-    expected = os.getenv("RECOVERY_KEY", "emergency-restore-nik")
-    if key != expected:
+    if key != recovery_key:
         raise HTTPException(status_code=403, detail="Invalid key")
 
     db = get_database()

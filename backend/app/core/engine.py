@@ -61,10 +61,17 @@ class TacitEngine:
         finally:
             session.close()
 
-    def _load_from_db(self, session_id: str) -> List[Dict[str, Any]]:
-        """Load all messages for a session from the DB."""
+    def _load_from_db(self, session_id: str, user_id: str = None) -> List[Dict[str, Any]]:
+        """Load all messages for a session from the DB. Validates user_id if provided."""
         session = self.db.get_session()
         try:
+            # Verify user owns this conversation if user_id provided
+            if user_id:
+                conv = session.query(ConversationDB).filter_by(id=session_id, user_id=user_id).first()
+                if not conv:
+                    logger.warning("unauthorized_conversation_access", session_id=session_id, user_id=user_id)
+                    return []
+
             rows = (
                 session.query(MessageDB)
                 .filter_by(conversation_id=session_id)
@@ -249,16 +256,22 @@ class TacitEngine:
             },
         }
 
-    def get_conversation(self, session_id: str) -> List[Dict[str, Any]]:
-        """Get conversation history for a session (from cache or DB)."""
+    def get_conversation(self, session_id: str, user_id: str = None) -> List[Dict[str, Any]]:
+        """Get conversation history for a session (from cache or DB). Validates user_id if provided."""
         if session_id not in self.conversations:
-            self.conversations[session_id] = self._load_from_db(session_id)
+            self.conversations[session_id] = self._load_from_db(session_id, user_id=user_id)
         return self.conversations[session_id]
 
-    def clear_conversation(self, session_id: str) -> None:
-        """Delete conversation and all its messages."""
+    def clear_conversation(self, session_id: str, user_id: str = None) -> None:
+        """Delete conversation and all its messages. Validates user_id if provided."""
         session = self.db.get_session()
         try:
+            # Verify ownership if user_id provided
+            if user_id:
+                conv = session.query(ConversationDB).filter_by(id=session_id, user_id=user_id).first()
+                if not conv:
+                    raise ValueError(f"Conversation {session_id} not found or user does not own it")
+
             session.query(MessageDB).filter_by(conversation_id=session_id).delete()
             session.query(ConversationDB).filter_by(id=session_id).delete()
             session.commit()
@@ -266,7 +279,7 @@ class TacitEngine:
             session.close()
 
         self.conversations.pop(session_id, None)
-        logger.info("conversation_cleared", session_id=session_id)
+        logger.info("conversation_cleared", session_id=session_id, user_id=user_id)
 
     def get_stats(self) -> Dict[str, Any]:
         """Get engine statistics."""

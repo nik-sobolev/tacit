@@ -9,8 +9,13 @@ from typing import List, Optional
 
 router = APIRouter()
 
-MIGRATION_SECRET = os.getenv("MIGRATION_SECRET", "tacit-migrate-2026")
-MIGRATION_USER_ID = os.getenv("MIGRATION_USER_ID", "user_3EVAoYRU4XFtkVMgBhvdoFV3xOd")
+MIGRATION_SECRET = os.getenv("MIGRATION_SECRET")
+MIGRATION_USER_ID = os.getenv("MIGRATION_USER_ID")
+
+if not MIGRATION_SECRET:
+    raise ValueError("MIGRATION_SECRET environment variable is required")
+if not MIGRATION_USER_ID:
+    raise ValueError("MIGRATION_USER_ID environment variable is required")
 
 
 class ContextItem(BaseModel):

@@ -5,8 +5,11 @@ from fastapi import APIRouter, HTTPException, Request
 
 router = APIRouter()
 
-# Emergency recovery key (temporary)
-RECOVERY_KEY = os.getenv("RECOVERY_KEY", "emergency-restore-nik")
+# Emergency recovery key — MUST be set via environment variable
+# No default value — fail loudly if not configured
+RECOVERY_KEY = os.getenv("RECOVERY_KEY")
+if not RECOVERY_KEY:
+    raise ValueError("RECOVERY_KEY environment variable is required for recovery endpoints")
 
 
 @router.post("/admin/recover/nodes/{user_id}")

@@ -186,6 +186,7 @@ class ShareTokenDB(Base):
     __tablename__ = "share_tokens"
 
     token = Column(String, primary_key=True)
+    user_id = Column(String, index=True, nullable=True)  # Owner of the share token
     label = Column(String(200), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     revoked = Column(Integer, default=0)
