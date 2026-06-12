@@ -17,6 +17,7 @@ router = APIRouter()
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 STRIPE_PRO_PRICE_ID = os.getenv("STRIPE_PRO_PRICE_ID")
+APP_DOMAIN = os.getenv("APP_DOMAIN", "https://www.trytacit.app")
 
 LIMITS = {"free": 100_000, "pro": 2_000_000}
 
@@ -68,8 +69,8 @@ async def create_checkout_session(current_user: dict = Depends(get_current_user)
                 }
             ],
             mode="subscription",
-            success_url="https://www.trytacit.app?billing=success",
-            cancel_url="https://www.trytacit.app",
+            success_url=f"{APP_DOMAIN}?billing=success",
+            cancel_url=APP_DOMAIN,
             customer_email=current_user.get("email"),
             metadata={
                 "user_id": current_user["id"],
@@ -95,7 +96,7 @@ async def create_portal_session(current_user: dict = Depends(get_current_user)):
         try:
             portal_session = stripe.billing_portal.Session.create(
                 customer=usage.stripe_customer_id,
-                return_url="https://www.trytacit.app",
+                return_url=APP_DOMAIN,
             )
             return {"url": portal_session.url}
         except Exception as e:
