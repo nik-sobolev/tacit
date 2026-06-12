@@ -1599,6 +1599,22 @@ function initUI() {
         document.getElementById('nodeDetailPanel').classList.remove('open');
     });
 
+    // Tour
+    document.getElementById('startTourBtn').addEventListener('click', showTour);
+    document.querySelector('.tour-close').addEventListener('click', closeTour);
+    document.querySelector('.tour-btn-prev').addEventListener('click', () => {
+        if (currentTourStep > 0) {
+            currentTourStep--;
+            updateTourStep();
+        }
+    });
+    document.querySelector('.tour-btn-next').addEventListener('click', () => {
+        if (currentTourStep < TOUR_STEPS.length - 1) {
+            currentTourStep++;
+            updateTourStep();
+        }
+    });
+
     // Bulk add
     document.getElementById('bulkAddBtn').addEventListener('click', showBulkAddModal);
 
@@ -1632,6 +1648,59 @@ function initUI() {
 
 function toggleChat() {
     document.getElementById('chatPanel').classList.toggle('collapsed');
+}
+
+const TOUR_STEPS = [
+    {
+        title: "Welcome to Tacit",
+        text: "Your second brain for capturing and connecting ideas.\n\nLet's get started with a quick tour."
+    },
+    {
+        title: "Add Content",
+        text: "Paste any URL in the bar at the top:\n• YouTube videos\n• TikTok clips\n• Articles & websites\n• PDFs & documents\n\nTacit will automatically transcribe, summarize, and tag everything."
+    },
+    {
+        title: "Chat to Connect",
+        text: "Click the 💬 button to ask questions about your content.\n\nTacit searches your canvas and gives you answers with sources.\n\nExample: \"What do I have about AI agents?\""
+    },
+    {
+        title: "Organize & Explore",
+        text: "Click 'Tags' to see categories.\n\nUse 'Arrange' to organize visually.\n\nClick the ⌕ button to search your cards."
+    },
+    {
+        title: "You're Ready!",
+        text: "Add your first URL above and watch Tacit process it.\n\nStart building your second brain!"
+    }
+];
+
+let currentTourStep = 0;
+
+function showTour() {
+    currentTourStep = 0;
+    updateTourStep();
+    document.getElementById('tourModal').style.display = 'flex';
+}
+
+function updateTourStep() {
+    const step = TOUR_STEPS[currentTourStep];
+    document.getElementById('tourTitle').textContent = step.title;
+    document.getElementById('tourText').textContent = step.text;
+    document.getElementById('tourStep').textContent = `${currentTourStep + 1} / ${TOUR_STEPS.length}`;
+
+    const prevBtn = document.querySelector('.tour-btn-prev');
+    const nextBtn = document.querySelector('.tour-btn-next');
+
+    prevBtn.disabled = currentTourStep === 0;
+    nextBtn.textContent = currentTourStep === TOUR_STEPS.length - 1 ? "Done ✓" : "Next →";
+
+    if (currentTourStep === TOUR_STEPS.length - 1) {
+        nextBtn.addEventListener('click', closeTour, { once: true });
+    }
+}
+
+function closeTour() {
+    document.getElementById('tourModal').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'none';
 }
 
 function updateEmptyState(nodeCount) {
