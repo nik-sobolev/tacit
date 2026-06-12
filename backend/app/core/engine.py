@@ -175,6 +175,21 @@ class TacitEngine:
         # Inject note content so Claude can read saved text notes
         knowledge["notes"] = self._get_notes_for_context(user_id=user_id)
 
+        # Inject all people for context
+        knowledge["people"] = self._get_all_people(user_id=user_id)
+
+        # Inject recent chat history (previous convos in this session)
+        conversation_history = self.conversations.get(session_id, [])
+        recent_messages = []
+        for msg in conversation_history[-10:]:  # Last 10 messages
+            if msg["role"] in ["user", "assistant"]:
+                recent_messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"][:500] if msg.get("content") else ""
+                })
+        if recent_messages:
+            knowledge["chat_history"] = recent_messages
+
         # Add orphan nodes context
         knowledge["orphan_nodes"] = self._get_orphan_nodes(user_id=user_id)
 
@@ -407,6 +422,22 @@ class TacitEngine:
         finally:
             session.close()
 
+    def _get_all_people(self, user_id: str = None) -> List[Dict[str, Any]]:
+        """Get all people for context injection."""
+        session = self.db.get_session()
+        try:
+            from ..db.database import PersonDB
+            query = session.query(PersonDB)
+            if user_id:
+                query = query.filter(PersonDB.user_id == user_id)
+            people = query.order_by(PersonDB.last_mentioned_at.desc()).limit(20).all()
+            return [self._person_to_dict(p) for p in people]
+        except Exception as e:
+            logger.error("get_all_people_error", error=str(e))
+            return []
+        finally:
+            session.close()
+
     def _scan_for_people(self, query: str) -> List[Dict[str, Any]]:
         """Scan query for known person names (case-insensitive word-boundary match)."""
         db_session = self.db.get_session()
@@ -611,6 +642,14 @@ class TacitEngine:
                 page = doc["metadata"].get("page_number", "?")
                 knowledge_section.append(f"{i}. **{filename}** (page {page})")
                 knowledge_section.append(f"   {doc['content'][:500]}...\n")
+
+        if knowledge.get("chat_history"):
+            knowledge_section.append("\n## Earlier in This Conversation\n")
+            for msg in knowledge["chat_history"]:
+                role_prefix = "You:" if msg["role"] == "user" else "Claude:"
+                content = msg["content"][:300]
+                knowledge_section.append(f"**{role_prefix}** {content}")
+            knowledge_section.append("")
 
         if knowledge.get("nodes"):
             knowledge_section.append("\n## Relevant Knowledge Graph Nodes\n")
