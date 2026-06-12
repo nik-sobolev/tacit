@@ -130,7 +130,8 @@ let isDraggingCard = false;
 let dragCard = null, dragOffsetX = 0, dragOffsetY = 0;
 const nodeElements = {};  // nodeId → DOM card element
 let graphData = { nodes: [], edges: [] };
-let activeCategory = null; // currently filtered category
+let activeCategory = null;
+let activeSearch = '';
 
 // ==================== CHAT STATE ====================
 
@@ -1391,6 +1392,33 @@ function initUI() {
     document.getElementById('closeDetailBtn').addEventListener('click', () => {
         document.getElementById('nodeDetailPanel').classList.remove('open');
     });
+
+    // Search
+    document.getElementById('searchToggleBtn').addEventListener('click', () => {
+        const bar = document.getElementById('headerSearchBar');
+        bar.classList.toggle('open');
+        if (bar.classList.contains('open')) {
+            document.getElementById('canvasSearchInput').focus();
+        } else {
+            document.getElementById('canvasSearchInput').value = '';
+            clearSearchFilter();
+        }
+    });
+    document.getElementById('canvasSearchInput').addEventListener('input', e => {
+        filterBySearch(e.target.value);
+    });
+    document.getElementById('searchClearBtn').addEventListener('click', () => {
+        document.getElementById('canvasSearchInput').value = '';
+        clearSearchFilter();
+        document.getElementById('headerSearchBar').classList.remove('open');
+    });
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && activeSearch) {
+            document.getElementById('canvasSearchInput').value = '';
+            clearSearchFilter();
+            document.getElementById('headerSearchBar').classList.remove('open');
+        }
+    });
 }
 
 function toggleChat() {
@@ -1469,6 +1497,33 @@ function clearCategoryFilter() {
         card.classList.remove('dimmed', 'highlighted');
     }
     document.querySelectorAll('.category-item').forEach(el => el.classList.remove('active'));
+    drawEdges(graphData.edges);
+}
+
+function filterBySearch(query) {
+    activeSearch = query;
+    const q = query.toLowerCase().trim();
+    if (!q) { clearSearchFilter(); return; }
+    for (const [id, card] of Object.entries(nodeElements)) {
+        const node = graphData.nodes.find(n => n.id === id);
+        if (!node) continue;
+        const hit =
+            (node.title || '').toLowerCase().includes(q) ||
+            (node.summary || '').toLowerCase().includes(q) ||
+            (node.url || '').toLowerCase().includes(q) ||
+            ((node.metadata && node.metadata.category) || '').toLowerCase().includes(q) ||
+            (node.tags || []).some(t => t.toLowerCase().includes(q));
+        card.classList.toggle('dimmed', !hit);
+        if (hit) card.classList.remove('highlighted');
+    }
+    drawEdges(graphData.edges);
+}
+
+function clearSearchFilter() {
+    activeSearch = '';
+    for (const card of Object.values(nodeElements)) {
+        card.classList.remove('dimmed', 'highlighted');
+    }
     drawEdges(graphData.edges);
 }
 

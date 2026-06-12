@@ -142,6 +142,43 @@ body {
     flex-shrink: 0;
 }
 
+.header-search-bar {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    z-index: 99;
+}
+.header-search-bar.open { display: flex; }
+
+#canvasSearchInput {
+    flex: 1;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 12px;
+    color: var(--text);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+}
+#canvasSearchInput:focus { border-color: var(--primary); }
+#canvasSearchInput::placeholder { color: var(--text-tertiary); }
+
+.search-clear-btn {
+    background: none;
+    border: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    line-height: 1;
+}
+.search-clear-btn:hover { color: var(--text); }
+
 .icon-btn {
     background: transparent;
     border: 1px solid var(--border);

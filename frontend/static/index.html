@@ -38,6 +38,7 @@
             </div>
 
             <div class="header-actions">
+                <button id="searchToggleBtn" class="icon-btn" title="Search cards">⌕</button>
                 <button id="toggleChatBtn" class="icon-btn" title="Toggle Chat">💬</button>
                 <button id="toggleCategoryBtn" class="icon-btn" title="Categories">Tags</button>
                 <button id="resetViewBtn" class="icon-btn" title="Reset View">⊙</button>
@@ -46,6 +47,12 @@
                 </div>
             </div>
         </header>
+
+        <!-- Search bar (toggled by ⌕ button) -->
+        <div class="header-search-bar" id="headerSearchBar">
+            <input type="search" id="canvasSearchInput" placeholder="Search by title, tag, category…" autocomplete="off" spellcheck="false" />
+            <button class="search-clear-btn" id="searchClearBtn">✕</button>
+        </div>
 
         <!-- Main Body -->
         <div class="app-body">
