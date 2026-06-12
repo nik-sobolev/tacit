@@ -1354,9 +1354,37 @@ async function loadConversationHistory() {
         }
         list.innerHTML = buildHistoryHTML(convs);
         list.querySelectorAll('.history-item').forEach(el => {
-            el.addEventListener('click', () => {
+            el.addEventListener('click', (e) => {
+                // Don't load conversation if clicking delete button
+                if (e.target.classList.contains('history-item-delete')) return;
                 loadConversation(el.dataset.session);
                 hideHistory();
+            });
+
+            el.querySelector('.history-item-delete').addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const sessionId = el.dataset.session;
+                if (!confirm('Delete this conversation?')) return;
+
+                try {
+                    const res = await apiFetch(`${API_BASE}/chat/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        el.remove();
+                        if (sessionId === currentSessionId) {
+                            document.getElementById('messages').innerHTML = '';
+                            currentSessionId = null;
+                        }
+                        // If no conversations left, show empty state
+                        if (list.querySelectorAll('.history-item').length === 0) {
+                            list.innerHTML = '<div class="history-empty">No conversations yet.<br>Start chatting to build history.</div>';
+                        }
+                    } else {
+                        showToast('Could not delete conversation', 'error');
+                    }
+                } catch (e) {
+                    showToast('Failed to delete conversation: ' + e.message, 'error');
+                    console.error('[Tacit] delete conversation error:', e);
+                }
             });
         });
     } catch (e) {
@@ -1394,8 +1422,11 @@ function buildHistoryItem(c) {
     if (c.message_count) parts.push(`${c.message_count} ${c.message_count === 1 ? 'msg' : 'msgs'}`);
     const title = c.title || c.preview || 'Empty conversation';
     return `<div class="history-item${isActive ? ' active' : ''}" data-session="${escapeHtml(c.session_id)}">
-        <div class="history-item-title">${escapeHtml(title)}</div>
-        <div class="history-item-meta">${parts.join(' · ')}</div>
+        <div class="history-item-content">
+            <div class="history-item-title">${escapeHtml(title)}</div>
+            <div class="history-item-meta">${parts.join(' · ')}</div>
+        </div>
+        <button class="history-item-delete" title="Delete conversation">✕</button>
     </div>`;
 }
 
