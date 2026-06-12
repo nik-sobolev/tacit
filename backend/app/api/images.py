@@ -20,7 +20,9 @@ async def upload_image(
 ):
     """Upload an image and create a canvas node"""
     try:
-        # Validate file type
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="No filename provided")
+
         file_ext = Path(file.filename).suffix.lower().lstrip('.')
         if file_ext not in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
             raise HTTPException(
@@ -28,21 +30,15 @@ async def upload_image(
                 detail=f"Unsupported image type: {file_ext}. Supported: JPG, PNG, GIF, WebP"
             )
 
-        # Read and validate file size
         content = await file.read()
-        file_size = len(content)
-        max_size = 20 * 1024 * 1024  # 20MB
-        if file_size > max_size:
-            raise HTTPException(
-                status_code=400,
-                detail="Image too large. Maximum size: 20MB"
-            )
+        if len(content) > 20 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Image too large. Maximum size: 20MB")
 
         node_id = str(uuid.uuid4())
-        sanitized_name = file.filename.replace(" ", "_")
+        sanitized_name = Path(file.filename).name.replace(" ", "_")
         saved_filename = f"{node_id}_{sanitized_name}"
 
-        thumbnail_url = store_image(content, saved_filename, file_ext)
+        thumbnail_url = store_image(content, saved_filename)
 
         db = get_database()
         node = NodeDB(
@@ -73,5 +69,7 @@ async def upload_image(
 
     except HTTPException:
         raise
+    except OSError:
+        raise HTTPException(status_code=500, detail="Failed to save image. Check server storage.")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Image upload failed.")

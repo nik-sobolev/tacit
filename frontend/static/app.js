@@ -205,8 +205,9 @@ function initCanvas() {
     const viewport = document.getElementById('canvasViewport');
     const surface = document.getElementById('canvasSurface');
 
-    // Pan: drag on empty canvas
+    // Pan: drag on empty canvas (desktop only — mobile uses scroll)
     viewport.addEventListener('mousedown', (e) => {
+        if (isMobile()) return;
         if (e.target === viewport || e.target === surface || e.target.id === 'edgesLayer') {
             isPanning = true;
             panStartX = e.clientX - canvasX;
@@ -640,8 +641,16 @@ async function uploadImageFile(file) {
             showToast('Failed to upload image: ' + (err.detail || 'Unknown error'), 'error');
             return;
         }
-        const node = await resp.json();
-        addNodeToCanvas(node);
+        const data = await resp.json();
+        const canvasNode = {
+            id: data.node_id, type: data.type, title: data.title,
+            thumbnail_url: data.thumbnail_url, status: data.status,
+            canvas_x: data.canvas_x, canvas_y: data.canvas_y,
+            tags: [], metadata: {}, summary: null,
+        };
+        createCard(canvasNode);
+        graphData.nodes.push(canvasNode);
+        updateEmptyState(graphData.nodes.length);
         showToast('Image added to canvas', 'success');
     } catch (e) {
         showToast('Failed to upload image: ' + e.message, 'error');
@@ -804,25 +813,97 @@ function mobileShowAdd() {
     if (!isMobile()) return;
     const modal = document.createElement('div');
     modal.className = 'mobile-add-modal';
-    modal.innerHTML = `
+    let mode = 'choice'; // 'choice' | 'url' | 'note'
+
+    const choiceUI = `
+        <div class="mobile-add-sheet">
+            <p style="font-size:14px;color:var(--text-secondary);margin-bottom:16px">What would you like to add?</p>
+            <button class="mobile-add-option" data-mode="url">📎 Add URL</button>
+            <button class="mobile-add-option" data-mode="note">📝 Write Note</button>
+        </div>
+    `;
+
+    const urlUI = `
         <div class="mobile-add-sheet">
             <p style="font-size:14px;color:var(--text-secondary);margin-bottom:12px">Add URL to canvas</p>
             <input id="mobileUrlInput" type="url" placeholder="https://..." inputmode="url" autofocus>
             <button id="mobileAddBtn">Add to Canvas</button>
         </div>
     `;
+
+    const noteUI = `
+        <div class="mobile-add-sheet">
+            <p style="font-size:14px;color:var(--text-secondary);margin-bottom:12px">Write a note</p>
+            <input id="mobileNoteTitle" type="text" placeholder="Title (optional)" style="margin-bottom:8px">
+            <textarea id="mobileNoteContent" placeholder="Your note..." style="min-height:120px;margin-bottom:12px"></textarea>
+            <button id="mobileAddNoteBtn">Save Note</button>
+        </div>
+    `;
+
+    modal.innerHTML = choiceUI;
     document.body.appendChild(modal);
 
-    const input = modal.querySelector('#mobileUrlInput');
-    setTimeout(() => input?.focus(), 100);
+    const updateUI = (newMode) => {
+        mode = newMode;
+        const sheet = modal.querySelector('.mobile-add-sheet');
+        if (newMode === 'url') {
+            sheet.innerHTML = urlUI.replace(/id="mobile/g, 'id="new-mobile');
+            setTimeout(() => modal.querySelector('#new-mobileUrlInput')?.focus(), 100);
+            modal.querySelector('#new-mobileAddBtn')?.addEventListener('click', handleAddUrl);
+        } else if (newMode === 'note') {
+            sheet.innerHTML = noteUI.replace(/id="mobile/g, 'id="new-mobile');
+            setTimeout(() => modal.querySelector('#new-mobileNoteContent')?.focus(), 100);
+            modal.querySelector('#new-mobileAddNoteBtn')?.addEventListener('click', handleAddNote);
+        }
+    };
 
-    modal.querySelector('#mobileAddBtn').addEventListener('click', async () => {
-        const url = input.value.trim();
+    const handleAddUrl = async () => {
+        const url = modal.querySelector('#new-mobileUrlInput')?.value.trim();
         if (!url) return;
         document.getElementById('urlInput').value = url;
         modal.remove();
         await submitUrl();
         mobileTab('canvas');
+    };
+
+    const handleAddNote = async () => {
+        const title = modal.querySelector('#new-mobileNoteTitle')?.value.trim() || '';
+        const content = modal.querySelector('#new-mobileNoteContent')?.value.trim() || '';
+        if (!content) return showToast('Note cannot be empty', 'error');
+
+        try {
+            const token = await window.Clerk.session.getToken();
+            const resp = await fetch('/api/ingest/note', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ title, content, canvas_x: 300, canvas_y: 300 }),
+            });
+            if (!resp.ok) {
+                const err = await resp.json();
+                showToast('Failed to save note: ' + (err.detail || 'Unknown error'), 'error');
+                return;
+            }
+            const node = await resp.json();
+            createCard(node);
+            graphData.nodes.push(node);
+            updateEmptyState(graphData.nodes.length);
+            modal.remove();
+            showToast('Note saved', 'success');
+            mobileTab('canvas');
+        } catch (e) {
+            showToast('Failed to save note: ' + e.message, 'error');
+            console.error('[Tacit] note creation error:', e);
+        }
+    };
+
+    modal.querySelectorAll('.mobile-add-option').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const newMode = e.target.closest('button').dataset.mode;
+            updateUI(newMode);
+        });
     });
 
     modal.addEventListener('click', (e) => {

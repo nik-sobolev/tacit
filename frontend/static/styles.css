@@ -1524,4 +1524,26 @@ body {
         font-weight: 600;
         cursor: pointer;
     }
+
+    .mobile-add-option {
+        background: var(--bg-elevated) !important;
+        color: var(--text) !important;
+        border: 1px solid var(--border) !important;
+        padding: 16px !important;
+        font-size: 16px !important;
+        text-align: left !important;
+        margin-bottom: 8px !important;
+    }
+
+    .mobile-add-sheet textarea {
+        width: 100%;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        color: var(--text);
+        font-size: 15px;
+        font-family: inherit;
+        resize: vertical;
+    }
 }

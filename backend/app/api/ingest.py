@@ -21,6 +21,13 @@ class IngestRequest(BaseModel):
     canvas_y: float = 100.0
 
 
+class NoteRequest(BaseModel):
+    content: str
+    title: str = None
+    canvas_x: float = 300.0
+    canvas_y: float = 300.0
+
+
 @router.post("/ingest")
 async def ingest_url(request: Request, body: IngestRequest, current_user: dict = Depends(get_current_user)):
     """Ingest a URL for the current user."""
@@ -84,6 +91,48 @@ async def ingest_url(request: Request, body: IngestRequest, current_user: dict =
     except Exception as e:
         logger.error("ingest_error", url=body.url, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ingest/note")
+async def create_note(body: NoteRequest, current_user: dict = Depends(get_current_user)):
+    """Create a text note on the canvas."""
+    import uuid
+    from datetime import datetime
+
+    if not body.content.strip():
+        raise HTTPException(status_code=400, detail="Note content cannot be empty")
+
+    db = get_database()
+    node_id = str(uuid.uuid4())
+    title = (body.title or "").strip() or body.content[:80].split("\n")[0]
+
+    try:
+        with db.session_scope() as session:
+            session.add(NodeDB(
+                id=node_id,
+                user_id=current_user["id"],
+                type="note",
+                title=title[:500],
+                content=body.content.strip(),
+                summary=None,
+                canvas_x=body.canvas_x,
+                canvas_y=body.canvas_y,
+                status="done",
+                created_at=datetime.utcnow(),
+                processed_at=datetime.utcnow(),
+            ))
+
+        return {
+            "node_id": node_id,
+            "type": "note",
+            "title": title,
+            "status": "done",
+            "canvas_x": body.canvas_x,
+            "canvas_y": body.canvas_y,
+        }
+    except Exception as e:
+        logger.error("create_note_error", user_id=current_user["id"], error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to create note")
 
 
 @router.get("/ingest/{node_id}/status")
