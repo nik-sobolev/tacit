@@ -1130,16 +1130,16 @@ The user is looking for specific information from their knowledge base.
                     url=None,
                     canvas_x=canvas_x,
                     canvas_y=canvas_y,
-                    status="processing",
+                    status="done",
                     tags=[],
                     node_meta={},
                     created_at=now,
+                    processed_at=now,
                 ))
 
             actions.append({
-                "type": "ingest_started",
+                "type": "node_created",
                 "node_id": node_id,
-                "url": None,
                 "node_type": "note",
                 "title": title[:500],
                 "canvas_x": canvas_x,

@@ -1377,6 +1377,29 @@ async function sendMessage() {
                 if (action.type === 'chaos_canvas') {
                     triggerCanvasChaos(action.positions || []);
                 }
+                if (action.type === 'node_created') {
+                    if (nodeElements[action.node_id]) continue;
+                    const node = {
+                        id: action.node_id,
+                        type: action.node_type || 'note',
+                        title: action.title,
+                        summary: null,
+                        thumbnail_url: null,
+                        url: null,
+                        canvas_x: action.canvas_x,
+                        canvas_y: action.canvas_y,
+                        status: 'done',
+                        tags: [],
+                        metadata: {},
+                    };
+                    createCard(node);
+                    graphData.nodes.push(node);
+                    updateEmptyState(graphData.nodes.length);
+                    if (action.node_type === 'note' && document.getElementById('chatPanel').classList.contains('notes-mode')) {
+                        setTimeout(loadNotesList, 500);
+                    }
+                }
+
                 if (action.type === 'ingest_started') {
                     if (nodeElements[action.node_id]) continue;
                     const vp = document.getElementById('canvasViewport');
