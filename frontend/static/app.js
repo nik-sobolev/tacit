@@ -1541,7 +1541,7 @@ function addMessage(role, content, isLoading = false, sources = []) {
     const container = document.getElementById('messages');
     const msgDiv = document.createElement('div');
     msgDiv.className = `message ${role}`;
-    const id = 'msg-' + Date.now();
+    const id = 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
     msgDiv.id = id;
 
     const bubble = document.createElement('div');
