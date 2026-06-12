@@ -9,13 +9,15 @@ from typing import List, Optional
 
 router = APIRouter()
 
-MIGRATION_SECRET = os.getenv("MIGRATION_SECRET")
-MIGRATION_USER_ID = os.getenv("MIGRATION_USER_ID")
-
-if not MIGRATION_SECRET:
-    raise ValueError("MIGRATION_SECRET environment variable is required")
-if not MIGRATION_USER_ID:
-    raise ValueError("MIGRATION_USER_ID environment variable is required")
+def get_migration_config():
+    """Lazy-load migration config - fail only if endpoints are called"""
+    secret = os.getenv("MIGRATION_SECRET")
+    user_id = os.getenv("MIGRATION_USER_ID")
+    if not secret:
+        raise ValueError("MIGRATION_SECRET environment variable is required")
+    if not user_id:
+        raise ValueError("MIGRATION_USER_ID environment variable is required")
+    return secret, user_id
 
 
 class ContextItem(BaseModel):
@@ -32,6 +34,7 @@ class MigrateRequest(BaseModel):
 
 @router.post("/migrate")
 async def migrate(request: Request, body: MigrateRequest):
+    MIGRATION_SECRET, MIGRATION_USER_ID = get_migration_config()
     secret = request.headers.get("X-Migration-Secret", "")
     if secret != MIGRATION_SECRET:
         raise HTTPException(status_code=403, detail="Forbidden")

@@ -6,10 +6,12 @@ from fastapi import APIRouter, HTTPException, Request
 router = APIRouter()
 
 # Emergency recovery key — MUST be set via environment variable
-# No default value — fail loudly if not configured
-RECOVERY_KEY = os.getenv("RECOVERY_KEY")
-if not RECOVERY_KEY:
-    raise ValueError("RECOVERY_KEY environment variable is required for recovery endpoints")
+# No default value — will fail at endpoint call if not configured
+def get_recovery_key():
+    key = os.getenv("RECOVERY_KEY")
+    if not key:
+        raise ValueError("RECOVERY_KEY environment variable is required for recovery endpoints")
+    return key
 
 
 @router.post("/admin/recover/nodes/{user_id}")
