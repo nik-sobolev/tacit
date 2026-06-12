@@ -154,7 +154,7 @@ class TacitEngine:
 
         # Populate in-memory cache from DB if this is the first access
         if session_id not in self.conversations:
-            self.conversations[session_id] = self._load_from_db(session_id)
+            self.conversations[session_id] = self._load_from_db(session_id, user_id=user_id)
 
         # Persist + cache the user message
         self._persist_message(session_id, "user", user_message)
