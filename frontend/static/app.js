@@ -626,6 +626,63 @@ async function submitUrl() {
     }
 }
 
+function showBulkAddModal() {
+    const modal = document.createElement('div');
+    modal.className = 'bulk-add-modal';
+    modal.innerHTML = `
+        <div class="bulk-add-overlay"></div>
+        <div class="bulk-add-panel">
+            <div class="bulk-add-header">
+                <h3>Add Multiple URLs</h3>
+                <button class="bulk-add-close">✕</button>
+            </div>
+            <div class="bulk-add-body">
+                <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">Paste URLs (one per line)</p>
+                <textarea id="bulkUrlInput" placeholder="https://example.com&#10;https://youtube.com/watch?v=...&#10;https://..."></textarea>
+            </div>
+            <div class="bulk-add-footer">
+                <button id="bulkSubmitBtn" class="bulk-submit-btn">Add to Canvas</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    const input = modal.querySelector('#bulkUrlInput');
+    setTimeout(() => input?.focus(), 100);
+
+    modal.querySelector('.bulk-add-close').addEventListener('click', () => modal.remove());
+    modal.querySelector('.bulk-add-overlay').addEventListener('click', () => modal.remove());
+
+    modal.querySelector('#bulkSubmitBtn').addEventListener('click', async () => {
+        const urls = input.value
+            .split('\n')
+            .map(u => u.trim())
+            .filter(u => u.startsWith('http'));
+
+        if (!urls.length) {
+            showToast('No valid URLs found', 'error');
+            return;
+        }
+
+        modal.querySelector('#bulkSubmitBtn').disabled = true;
+        let added = 0, failed = 0;
+
+        for (const url of urls) {
+            try {
+                document.getElementById('urlInput').value = url;
+                await submitUrl();
+                added++;
+                await new Promise(r => setTimeout(r, 300)); // small delay between requests
+            } catch (e) {
+                failed++;
+            }
+        }
+
+        modal.remove();
+        showToast(`Added ${added} URLs${failed ? ` (${failed} failed)` : ''}`, added > 0 ? 'success' : 'error');
+    });
+}
+
 async function uploadImageFile(file) {
     try {
         const formData = new FormData();
@@ -1498,6 +1555,9 @@ function initUI() {
     document.getElementById('closeDetailBtn').addEventListener('click', () => {
         document.getElementById('nodeDetailPanel').classList.remove('open');
     });
+
+    // Bulk add
+    document.getElementById('bulkAddBtn').addEventListener('click', showBulkAddModal);
 
     // Search
     document.getElementById('searchToggleBtn').addEventListener('click', () => {
