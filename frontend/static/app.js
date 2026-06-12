@@ -84,11 +84,9 @@ function addUserMenuToHeader(clerk) {
             try {
                 const res = await apiFetch(`${API_BASE}/quickadd/token`);
                 const data = await res.json();
-                const shortcutUrl = `https://www.icloud.com/shortcuts/` // placeholder
-                const addUrl = `https://www.trytacit.app/api/quickadd?token=${data.token}&url=`;
-                alert(`Your quick-add URL:\n\n${addUrl}\n\nAdd this as a Siri Shortcut:\nOpen Shortcuts → New → Add Action → URL → paste above URL, then append the variable "Safari URL" at the end. Run it from the Share Sheet in Safari.`);
+                showIOSShortcutModal(data.token);
             } catch (e) {
-                alert('Could not load token. Try again.');
+                showToast('Could not load token. Try again.', 'error');
             }
         });
         navbar.appendChild(mobileItem);
@@ -680,6 +678,51 @@ function showBulkAddModal() {
 
         modal.remove();
         showToast(`Added ${added} URLs${failed ? ` (${failed} failed)` : ''}`, added > 0 ? 'success' : 'error');
+    });
+}
+
+function showIOSShortcutModal(token) {
+    const modal = document.createElement('div');
+    modal.className = 'ios-shortcut-modal';
+    const addUrl = `https://www.trytacit.app/api/quickadd?token=${token}&url=`;
+    modal.innerHTML = `
+        <div class="ios-shortcut-overlay"></div>
+        <div class="ios-shortcut-panel">
+            <div class="ios-shortcut-header">
+                <h3>iOS Quick-Add Shortcut</h3>
+                <button class="ios-shortcut-close">✕</button>
+            </div>
+            <div class="ios-shortcut-body">
+                <p style="font-size:13px;margin-bottom:16px"><strong>Setup Instructions</strong></p>
+                <ol style="font-size:13px;margin-bottom:16px;line-height:1.6">
+                    <li>Open iOS Shortcuts app</li>
+                    <li>Tap "+" to create new shortcut</li>
+                    <li>Add "Open URL" action</li>
+                    <li>Paste the URL below</li>
+                    <li>Add "Ask for Text" for user to paste URL</li>
+                    <li>Save as "Add to Tacit"</li>
+                </ol>
+                <label style="font-size:12px;display:block;margin-bottom:8px">API URL:</label>
+                <div style="display:flex;gap:8px">
+                    <input type="text" id="iosUrlInput" readonly value="${addUrl}" style="flex:1;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:12px;font-family:monospace" />
+                    <button id="copyUrlBtn" style="padding:8px 12px;background:var(--primary);color:white;border:none;border-radius:4px;cursor:pointer;white-space:nowrap">Copy</button>
+                </div>
+                <p style="font-size:12px;color:var(--text-secondary);margin-top:12px">Your API token (keep secret):<br><code style="background:var(--bg);padding:4px;border-radius:2px;word-break:break-all">${token}</code></p>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.querySelector('.ios-shortcut-close').addEventListener('click', () => modal.remove());
+    modal.querySelector('.ios-shortcut-overlay').addEventListener('click', () => modal.remove());
+
+    modal.querySelector('#copyUrlBtn').addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(addUrl);
+            showToast('URL copied to clipboard!', 'success');
+        } catch (e) {
+            showToast('Could not copy to clipboard', 'error');
+        }
     });
 }
 
