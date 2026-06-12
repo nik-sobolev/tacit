@@ -913,7 +913,7 @@ The user is looking for specific information from their knowledge base.
         {
             "name": "create_text_note",
             "description": (
-                "Save raw text content as a note card on the user's canvas. "
+                "Save raw text content as a note. Notes appear on the canvas and in the Notes section. "
                 "Use when the user pastes article text, quotes, or asks to save/note/remember something as text. "
                 "Also use when a URL can't be scraped (e.g. X/Twitter) and the user pastes the content manually. "
                 "Generate a concise title from the content if the user doesn't provide one."
@@ -1159,9 +1159,11 @@ The user is looking for specific information from their knowledge base.
             node_id = str(uuid.uuid4())
             now = datetime.utcnow()
 
+            user_id = getattr(self, "_current_user_id", None)
             with self.db.session_scope() as s:
                 s.add(NodeDB(
                     id=node_id,
+                    user_id=user_id,
                     type="note",
                     title=title[:500],
                     content=content,
@@ -1190,7 +1192,7 @@ The user is looking for specific information from their knowledge base.
                 "success": True,
                 "node_id": node_id,
                 "title": title,
-                "message": "Note saved — the card will appear on your canvas shortly.",
+                "message": "Note saved to canvas and Notes section.",
             }
 
         if name == "arrange_canvas":
