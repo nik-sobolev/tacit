@@ -11,6 +11,9 @@ from ..db.database import get_database, UserQuickTokenDB, NodeDB
 logger = structlog.get_logger()
 router = APIRouter()
 
+# Rate limiting for token validation attempts (prevent brute force)
+TOKEN_ATTEMPTS = {}
+
 
 @router.get("/quickadd/token")
 async def get_or_create_token(current_user: dict = Depends(get_current_user)):
@@ -44,12 +47,32 @@ async def rotate_token(current_user: dict = Depends(get_current_user)):
 
 @router.post("/quickadd")
 async def quick_add(request: Request, token: str, url: str = None):
-    """Add a URL to the user's canvas. No Clerk auth — token-based. POST only."""
+    """Add a URL to the user's canvas. No Clerk auth — token-based. POST only.
+    Rate-limited to prevent token brute forcing."""
+    import time
+
+    # Rate limiting: track failed attempts per IP address
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+
+    # Clean old attempts (older than 60 seconds)
+    if client_ip in TOKEN_ATTEMPTS:
+        TOKEN_ATTEMPTS[client_ip] = [t for t in TOKEN_ATTEMPTS[client_ip] if now - t < 60]
+
+    # Check if rate limited (max 5 attempts per minute)
+    if client_ip in TOKEN_ATTEMPTS and len(TOKEN_ATTEMPTS[client_ip]) >= 5:
+        logger.warning("quickadd_rate_limited", client_ip=client_ip)
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
+
     db = get_database()
 
     with db.session_scope() as session:
         row = session.query(UserQuickTokenDB).filter_by(token=token).first()
         if not row:
+            # Track failed attempt
+            if client_ip not in TOKEN_ATTEMPTS:
+                TOKEN_ATTEMPTS[client_ip] = []
+            TOKEN_ATTEMPTS[client_ip].append(now)
             raise HTTPException(status_code=403, detail="Invalid token")
         user_id = row.user_id
 
