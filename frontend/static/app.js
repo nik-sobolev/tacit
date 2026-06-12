@@ -892,6 +892,7 @@ function mobileShowAdd() {
             updateEmptyState(graphData.nodes.length);
             modal.remove();
             showToast('Note saved', 'success');
+            loadNotesList();
             mobileTab('canvas');
         } catch (e) {
             showToast('Failed to save note: ' + e.message, 'error');
