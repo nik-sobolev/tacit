@@ -1292,8 +1292,9 @@ function buildHistoryItem(c) {
     const parts = [];
     if (c.last_activity) parts.push(formatRelativeTime(c.last_activity));
     if (c.message_count) parts.push(`${c.message_count} ${c.message_count === 1 ? 'msg' : 'msgs'}`);
+    const title = c.title || c.preview || 'Empty conversation';
     return `<div class="history-item${isActive ? ' active' : ''}" data-session="${escapeHtml(c.session_id)}">
-        <div class="history-item-title">${escapeHtml(c.preview || 'Empty conversation')}</div>
+        <div class="history-item-title">${escapeHtml(title)}</div>
         <div class="history-item-meta">${parts.join(' · ')}</div>
     </div>`;
 }

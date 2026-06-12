@@ -216,7 +216,6 @@ async def list_conversations(
         )
         result = []
         for c in convs:
-            # Get the first user message as a preview title
             first_msg = (
                 session.query(MessageDB)
                 .filter_by(conversation_id=c.id, role="user")
@@ -224,9 +223,16 @@ async def list_conversations(
                 .first()
             )
             preview = first_msg.content[:60] if first_msg else "Empty conversation"
+            title = c.title or preview
+
+            # Auto-save title if empty
+            if not c.title and first_msg:
+                c.title = preview
+                session.commit()
+
             result.append({
                 "session_id": c.id,
-                "title": c.title or preview,
+                "title": title,
                 "preview": preview,
                 "message_count": c.message_count or 0,
                 "last_activity": c.last_activity.isoformat() if c.last_activity else None,
