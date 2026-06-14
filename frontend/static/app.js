@@ -3,6 +3,31 @@ console.log('[Tacit] app.js v3 loaded (canvas)');
 
 const API_BASE = '/api';
 
+// ==================== FEATURE FLAGS ====================
+
+let featureFlags = { notes_enabled: false, people_enabled: false };
+
+async function loadFeatureFlags() {
+    try {
+        const res = await fetch(`${API_BASE}/features`);
+        featureFlags = await res.json();
+    } catch (e) {
+        console.warn('[Tacit] failed to load feature flags:', e);
+    }
+    applyFeatureFlags();
+}
+
+function applyFeatureFlags() {
+    document.getElementById('notesBtn').style.display =
+        featureFlags.notes_enabled ? '' : 'none';
+    document.getElementById('peopleBtn').style.display =
+        featureFlags.people_enabled ? '' : 'none';
+    document.getElementById('notesModeHeader').style.display =
+        featureFlags.notes_enabled ? '' : 'none';
+    document.getElementById('peopleModeHeader').style.display =
+        featureFlags.people_enabled ? '' : 'none';
+}
+
 // ==================== CLERK AUTH ====================
 
 let clerkInstance = null;
@@ -68,6 +93,13 @@ function addUserMenuToHeader(clerk) {
     userBtn.style.fontWeight = '700';
     userBtn.addEventListener('click', () => clerk.openUserProfile());
     actions.insertBefore(userBtn, actions.firstChild);
+
+    // Mobile profile icon — personalize with user initial
+    const mobileIcon = document.getElementById('mobileProfileIcon');
+    if (mobileIcon) {
+        mobileIcon.textContent = (firstName || fullName || '?')[0].toUpperCase();
+        mobileIcon.style.fontWeight = '700';
+    }
 
     // Inject sign-out button into Clerk's UserProfile modal sidebar when it opens
     const observer = new MutationObserver(async () => {
@@ -176,6 +208,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const authed = await initAuth();
     if (!authed) return; // waiting for sign-in redirect
 
+    await loadFeatureFlags();
     initCanvas();
     initIngestion();
     initChat();
@@ -187,6 +220,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadGraph();
     await loadCategories();
     await loadInsights();
+    if (featureFlags.notes_enabled) {
+        loadNotesList();
+    }
 
     // Handle PWA share target — Android shares URL via ?share_url=
     const sharedUrl = new URLSearchParams(window.location.search).get('share_url');
@@ -909,17 +945,24 @@ function mobileTab(tab) {
     }
 }
 
+function mobileOpenProfile() {
+    if (window.Clerk) {
+        window.Clerk.openUserProfile();
+    }
+}
+
 function mobileShowAdd() {
     if (!isMobile()) return;
     const modal = document.createElement('div');
     modal.className = 'mobile-add-modal';
     let mode = 'choice'; // 'choice' | 'url' | 'note'
 
+    const noteButton = featureFlags.notes_enabled ? '<button class="mobile-add-option" data-mode="note">📝 Write Note</button>' : '';
     const choiceUI = `
         <div class="mobile-add-sheet">
             <p style="font-size:14px;color:var(--text-secondary);margin-bottom:16px">What would you like to add?</p>
             <button class="mobile-add-option" data-mode="url">📎 Add URL</button>
-            <button class="mobile-add-option" data-mode="note">📝 Write Note</button>
+            ${noteButton}
         </div>
     `;
 
@@ -1160,6 +1203,33 @@ async function restoreOrStartSession() {
         addWelcomeMessage();
         return;
     }
+
+    // No local session — fall back to most recent conversation on server (cross-device sync)
+    try {
+        const histRes = await apiFetch(`${API_BASE}/conversations?limit=1`);
+        if (histRes.ok) {
+            const histData = await histRes.json();
+            const convos = histData.conversations || [];
+            if (convos.length > 0 && convos[0].message_count > 0) {
+                const sessionId = convos[0].session_id;
+                currentSessionId = sessionId;
+                localStorage.setItem('tacit_session_id', currentSessionId);
+                const msgRes = await apiFetch(`${API_BASE}/chat/history/${sessionId}`);
+                if (msgRes.ok) {
+                    const msgData = await msgRes.json();
+                    if (msgData.messages && msgData.messages.length > 0) {
+                        msgData.messages.forEach(msg =>
+                            addMessage(msg.role, msg.content, false, msg.sources || [])
+                        );
+                        return;
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        console.error('[Tacit] cross-device restore error:', e);
+    }
+
     currentSessionId = generateSessionId();
     localStorage.setItem('tacit_session_id', currentSessionId);
     addWelcomeMessage();
