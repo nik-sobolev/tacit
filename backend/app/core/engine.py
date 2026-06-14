@@ -903,26 +903,7 @@ The user is looking for specific information from their knowledge base.
 
     # ==================== INGEST TOOL ====================
 
-    _INGEST_TOOLS = [
-        {
-            "name": "ingest_url",
-            "description": (
-                "Add a URL to the user's canvas by ingesting it. "
-                "Call this when the user pastes a URL or asks to add/save/bookmark a link. "
-                "Do NOT call this for URLs already on the canvas. "
-                "Do NOT call this for x.com or twitter.com URLs — tell the user to use the URL bar instead."
-            ),
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The full http/https URL to ingest"
-                    }
-                },
-                "required": ["url"]
-            }
-        },
+    _NOTE_TOOLS = [
         {
             "name": "create_text_note",
             "description": (
@@ -944,6 +925,28 @@ The user is looking for specific information from their knowledge base.
                     }
                 },
                 "required": ["content"]
+            }
+        }
+    ]
+
+    _INGEST_TOOLS = [
+        {
+            "name": "ingest_url",
+            "description": (
+                "Add a URL to the user's canvas by ingesting it. "
+                "Call this when the user pastes a URL or asks to add/save/bookmark a link. "
+                "Do NOT call this for URLs already on the canvas. "
+                "Do NOT call this for x.com or twitter.com URLs — tell the user to use the URL bar instead."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The full http/https URL to ingest"
+                    }
+                },
+                "required": ["url"]
             }
         }
     ]
@@ -1323,8 +1326,16 @@ The user is looking for specific information from their knowledge base.
         actions: List[Dict] = []
         last_usage = None
 
-        # People + search + chaos always enabled; canvas and ingest tools conditionally
-        tools = list(self._PEOPLE_TOOLS) + list(self._SEARCH_TOOLS) + list(self._CHAOS_TOOLS)
+        # Load feature flags
+        from ..api.features import get_flags
+        flags = get_flags()
+
+        # Search + chaos always enabled; people and notes gated on flags; canvas and ingest conditionally
+        tools = list(self._SEARCH_TOOLS) + list(self._CHAOS_TOOLS)
+        if flags["people_enabled"]:
+            tools.extend(self._PEOPLE_TOOLS)
+        if flags["notes_enabled"]:
+            tools.extend(self._NOTE_TOOLS)
         if enable_canvas_tools:
             tools.extend(self._CANVAS_TOOLS)
         if enable_ingest_tool:

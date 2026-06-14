@@ -14,7 +14,7 @@ from slowapi.errors import RateLimitExceeded
 from fastapi.exceptions import RequestValidationError
 
 from .api import chat, context, documents
-from .api import ingest, graph as graph_api, share as share_api, images as images_api, billing as billing_api, recover as recover_api, migrate as migrate_api, quickadd as quickadd_api
+from .api import ingest, graph as graph_api, share as share_api, images as images_api, billing as billing_api, recover as recover_api, migrate as migrate_api, quickadd as quickadd_api, features as features_api
 from .core.auth import get_current_user
 from .core.config import TacitConfig
 from .core.engine import TacitEngine
@@ -91,6 +91,8 @@ app.include_router(billing_api.router, prefix="/api", tags=["billing"])
 app.include_router(recover_api.router, prefix="/api", tags=["recover"])
 # Migration — protected by secret header, no Clerk auth
 app.include_router(migrate_api.router, prefix="/api", tags=["migrate"])
+# Features — public endpoint (no auth required)
+app.include_router(features_api.router, prefix="/api", tags=["features"])
 # Quick-add — no auth_dep here (endpoints use Clerk or token auth internally)
 app.include_router(quickadd_api.router, prefix="/api", tags=["quickadd"])
 
