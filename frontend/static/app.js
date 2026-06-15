@@ -946,9 +946,36 @@ function mobileTab(tab) {
 }
 
 function mobileOpenProfile() {
-    if (window.Clerk) {
-        window.Clerk.openUserProfile();
-    }
+    const modal = document.createElement('div');
+    modal.className = 'mobile-add-modal';
+    modal.innerHTML = `
+        <div class="mobile-add-sheet">
+            <p style="font-size:14px;color:var(--text-secondary);margin-bottom:16px">Account</p>
+            <button class="mobile-add-option" id="mobileAccountBtn">👤 My Profile</button>
+            <button class="mobile-add-option" id="mobileSignOutBtn" style="color:#bf4d28">↩ Sign Out</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.querySelector('#mobileAccountBtn').addEventListener('click', () => {
+        modal.remove();
+        if (window.Clerk) {
+            window.Clerk.openUserProfile();
+        }
+    });
+
+    modal.querySelector('#mobileSignOutBtn').addEventListener('click', async () => {
+        modal.remove();
+        if (confirm('Sign out?')) {
+            if (window.Clerk) {
+                await window.Clerk.signOut();
+            }
+        }
+    });
+
+    modal.addEventListener('click', e => {
+        if (e.target === modal) modal.remove();
+    });
 }
 
 function mobileShowAdd() {
