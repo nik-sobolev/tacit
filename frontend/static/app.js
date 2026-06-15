@@ -1720,6 +1720,11 @@ function removeMessage(id) {
 // ==================== UI ====================
 
 function initUI() {
+    // Logo refresh
+    document.querySelector('.header-brand').addEventListener('click', () => {
+        location.reload();
+    });
+
     document.getElementById('toggleChatBtn').addEventListener('click', toggleChat);
     document.getElementById('resetViewBtn').addEventListener('click', resetView);
     document.getElementById('toggleCategoryBtn').addEventListener('click', toggleCategory);
