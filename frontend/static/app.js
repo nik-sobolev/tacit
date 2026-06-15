@@ -28,24 +28,6 @@ function applyFeatureFlags() {
         featureFlags.people_enabled ? '' : 'none';
 }
 
-// ==================== SPLASH SCREEN ====================
-
-function initSplash() {
-    const splashShown = localStorage.getItem('tacit_splash_shown');
-    if (!splashShown) {
-        document.getElementById('splashScreen').style.display = 'flex';
-        document.getElementById('splashButton').addEventListener('click', () => {
-            document.getElementById('splashButton').style.display = 'none';
-            document.getElementById('splashLoading').style.display = 'flex';
-        });
-    } else {
-        document.getElementById('splashScreen').style.display = 'none';
-    }
-}
-
-// Show splash on first load
-initSplash();
-
 // ==================== CLERK AUTH ====================
 
 let clerkInstance = null;
@@ -75,8 +57,6 @@ async function initAuth() {
         }
 
         document.querySelector('.app-root').style.visibility = 'visible';
-        localStorage.setItem('tacit_splash_shown', 'true');
-        document.getElementById('splashScreen').style.display = 'none';
         getAuthToken = () => clerk.session.getToken();
         addUserMenuToHeader(clerk);
         return true;
@@ -229,7 +209,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!authed) return; // waiting for sign-in redirect
 
     await loadFeatureFlags();
-    setupEmptyState();
     initCanvas();
     initIngestion();
     initChat();
@@ -1683,15 +1662,7 @@ async function sendMessage() {
 }
 
 function addWelcomeMessage() {
-    const firstName = (clerkInstance && clerkInstance.user && clerkInstance.user.firstName) || 'there';
-    const message = `**Hey ${firstName}!** 👋\n\n` +
-        `I'm Tacit, your AI work twin. Here's what I can do:\n\n` +
-        `📎 **Add content** — Paste any URL (YouTube, TikTok, articles, PDFs) in the bar above\n` +
-        `🤖 **Transcribe & summarize** — I'll automatically turn videos into text and create summaries\n` +
-        `💬 **Chat & connect** — Ask me questions about your content. I'll find answers and show sources\n` +
-        `🔗 **Organize automatically** — I'll tag, categorize, and find hidden connections\n\n` +
-        `Ready? Paste your first URL above! 🚀`;
-    addMessage('assistant', message);
+    addMessage('assistant', '**Welcome to Tacit!** Drop any URL above to add it to your canvas — YouTube videos, TikTok, Instagram, or any webpage. I\'ll transcribe, summarize, and connect everything automatically.\n\nYou can also ask me anything about the content in your canvas.');
 }
 
 function addMessage(role, content, isLoading = false, sources = []) {
@@ -1858,16 +1829,6 @@ function updateTourStep() {
 function closeTour() {
     document.getElementById('tourModal').style.display = 'none';
     document.getElementById('emptyState').style.display = 'none';
-}
-
-function setupEmptyState() {
-    if (clerkInstance && clerkInstance.user) {
-        const firstName = clerkInstance.user.firstName || 'there';
-        const emptyStateH2 = document.querySelector('.empty-state h2');
-        const emptyStateP = document.querySelector('.empty-state p');
-        if (emptyStateH2) emptyStateH2.textContent = `Welcome, ${firstName}!`;
-        if (emptyStateP) emptyStateP.textContent = "Let's start building your second brain.";
-    }
 }
 
 function updateEmptyState(nodeCount) {
