@@ -17,9 +17,14 @@ router = APIRouter()
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 STRIPE_PRO_PRICE_ID = os.getenv("STRIPE_PRO_PRICE_ID")
+STRIPE_PREMIUM_PRICE_ID = os.getenv("STRIPE_PREMIUM_PRICE_ID")
 APP_DOMAIN = os.getenv("APP_DOMAIN", "https://www.trytacit.app")
 
-LIMITS = {"free": 100_000, "pro": 2_000_000}
+LIMITS = {"free": 100_000, "pro": 500_000, "premium": 1_000_000}
+PRICE_TO_PLAN = {
+    STRIPE_PRO_PRICE_ID: "pro",
+    STRIPE_PREMIUM_PRICE_ID: "premium",
+}
 
 
 @router.get("/billing/status")
@@ -53,10 +58,17 @@ async def get_usage_status(current_user: dict = Depends(get_current_user)):
         }
 
 
-@router.post("/billing/checkout")
-async def create_checkout_session(current_user: dict = Depends(get_current_user)):
-    """Create Stripe checkout session for Pro plan"""
-    if not STRIPE_PRO_PRICE_ID:
+@router.post("/billing/checkout/{plan}")
+async def create_checkout_session(plan: str, current_user: dict = Depends(get_current_user)):
+    """Create Stripe checkout session for specified plan (pro or premium)"""
+    if plan == "pro":
+        price_id = STRIPE_PRO_PRICE_ID
+    elif plan == "premium":
+        price_id = STRIPE_PREMIUM_PRICE_ID
+    else:
+        raise HTTPException(status_code=400, detail="Invalid plan")
+
+    if not price_id:
         raise HTTPException(status_code=500, detail="Stripe not configured")
 
     try:
@@ -64,7 +76,7 @@ async def create_checkout_session(current_user: dict = Depends(get_current_user)
             payment_method_types=["card"],
             line_items=[
                 {
-                    "price": STRIPE_PRO_PRICE_ID,
+                    "price": price_id,
                     "quantity": 1,
                 }
             ],
@@ -74,11 +86,12 @@ async def create_checkout_session(current_user: dict = Depends(get_current_user)
             customer_email=current_user.get("email"),
             metadata={
                 "user_id": current_user["id"],
+                "plan": plan,
             },
         )
         return {"url": session.url}
     except Exception as e:
-        logger.error("stripe_checkout_error", error=str(e))
+        logger.error("stripe_checkout_error", error=str(e), plan=plan)
         raise HTTPException(status_code=500, detail="Failed to create checkout session")
 
 
@@ -125,18 +138,31 @@ async def stripe_webhook(request: Request):
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         user_id = session["metadata"].get("user_id")
+        plan = session["metadata"].get("plan", "pro")
         customer_id = session["customer"]
 
         if user_id and customer_id:
             with db.session_scope() as db_session:
                 usage = db_session.query(UserUsageDB).filter_by(user_id=user_id).first()
                 if usage:
-                    usage.plan = "pro"
+                    usage.plan = plan
                     usage.stripe_customer_id = customer_id
                     usage.stripe_subscription_id = session.get("subscription")
                     usage.updated_at = datetime.utcnow()
                     db_session.commit()
-                    logger.info("subscription_created", user_id=user_id, plan="pro")
+                    logger.info("subscription_created", user_id=user_id, plan=plan)
+                else:
+                    new_usage = UserUsageDB(
+                        user_id=user_id,
+                        plan=plan,
+                        stripe_customer_id=customer_id,
+                        stripe_subscription_id=session.get("subscription"),
+                        tokens_used=0,
+                        period_start=datetime.utcnow()
+                    )
+                    db_session.add(new_usage)
+                    db_session.commit()
+                    logger.info("subscription_created", user_id=user_id, plan=plan)
 
     elif event["type"] == "customer.subscription.deleted":
         subscription = event["data"]["object"]

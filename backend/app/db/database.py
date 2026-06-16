@@ -47,6 +47,7 @@ class DocumentDB(Base):
     __tablename__ = "documents"
 
     id = Column(String, primary_key=True)
+    user_id = Column(String, index=True, nullable=True)
     filename = Column(String(255), nullable=False)
     original_filename = Column(String(255), nullable=False)
     type = Column(String(10), nullable=False)
@@ -171,10 +172,10 @@ class PersonDB(Base):
 
 
 class UserSettingsDB(Base):
-    """Single-row settings table for user personalization"""
+    """Per-user settings table for personalization. PK is Clerk user_id."""
     __tablename__ = "user_settings"
 
-    id           = Column(String, primary_key=True, default="default")
+    id           = Column(String, primary_key=True)   # Clerk user_id (never "default")
     user_name    = Column(String(200), default="User")
     user_role    = Column(String(200), default="")
     organization = Column(String(200), default="")

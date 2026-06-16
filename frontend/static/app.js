@@ -85,6 +85,14 @@ function addUserMenuToHeader(clerk) {
         body: JSON.stringify({ user_name: fullName })
     }).catch(() => {});
 
+    // Billing button
+    const billingBtn = document.createElement('button');
+    billingBtn.className = 'icon-btn';
+    billingBtn.title = 'Billing & Usage';
+    billingBtn.textContent = '💳';
+    billingBtn.addEventListener('click', openBillingPanel);
+    actions.insertBefore(billingBtn, actions.firstChild);
+
     // User avatar button
     const userBtn = document.createElement('button');
     userBtn.className = 'icon-btn';
@@ -928,6 +936,86 @@ async function deleteNode(nodeId, cardEl) {
 
 function isMobile() {
     return window.innerWidth <= 768;
+}
+
+// ==================== BILLING ====================
+
+async function openBillingPanel() {
+    const status = await apiFetch(`${API_BASE}/billing/status`).then(r => r.json()).catch(() => ({
+        plan: 'free',
+        tokens_used: 0,
+        tokens_limit: 100_000,
+        pct_used: 0
+    }));
+
+    const modal = document.createElement('div');
+    modal.className = 'mobile-add-modal';
+    modal.innerHTML = `
+        <div class="mobile-add-sheet" style="max-width:500px;margin:auto">
+            <h3 style="color:var(--text);margin-bottom:20px;font-size:18px">Billing & Usage</h3>
+
+            <div style="background:var(--surface);padding:16px;border-radius:8px;margin-bottom:20px">
+                <div style="color:var(--text-secondary);font-size:12px;margin-bottom:8px">CURRENT PLAN</div>
+                <div style="font-size:24px;color:var(--text);font-weight:700;text-transform:capitalize;margin-bottom:16px">${status.plan}</div>
+
+                <div style="color:var(--text-secondary);font-size:12px;margin-bottom:4px">TOKEN USAGE</div>
+                <div style="color:var(--text);margin-bottom:8px">${status.tokens_used.toLocaleString()} / ${status.tokens_limit.toLocaleString()} tokens</div>
+                <div style="background:var(--border);height:8px;border-radius:4px;overflow:hidden">
+                    <div style="background:#c05621;height:100%;width:${status.pct_used}%"></div>
+                </div>
+                <div style="color:var(--text-tertiary);font-size:12px;margin-top:8px">${status.pct_used}% used</div>
+            </div>
+
+            <div style="margin-bottom:20px">
+                <div style="color:var(--text-secondary);font-size:12px;margin-bottom:12px">UPGRADE OPTIONS</div>
+                ${status.plan === 'free' ? `
+                    <button class="mobile-add-option" id="upgradeToPro" style="margin-bottom:8px">⬆️ Pro — $9/month (500K tokens)</button>
+                    <button class="mobile-add-option" id="upgradeToPremium">⬆️ Premium — $19/month (1M tokens)</button>
+                ` : status.plan === 'pro' ? `
+                    <button class="mobile-add-option" id="upgradeToPremium">⬆️ Upgrade to Premium — $19/month (1M tokens)</button>
+                    <button class="mobile-add-option" id="manageBilling" style="margin-top:8px">⚙️ Manage Subscription</button>
+                ` : `
+                    <button class="mobile-add-option" id="manageBilling">⚙️ Manage Subscription</button>
+                `}
+            </div>
+
+            <button class="mobile-add-option" style="background:transparent;color:var(--text-tertiary);border:1px solid var(--border)" id="closeBillingBtn">Close</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Handle upgrade buttons
+    const upgradeProBtn = modal.querySelector('#upgradeToPro');
+    if (upgradeProBtn) {
+        upgradeProBtn.addEventListener('click', () => startCheckout('pro'));
+    }
+    const upgradePremiumBtn = modal.querySelector('#upgradeToPremium');
+    if (upgradePremiumBtn) {
+        upgradePremiumBtn.addEventListener('click', () => startCheckout('premium'));
+    }
+    const manageBtn = modal.querySelector('#manageBilling');
+    if (manageBtn) {
+        manageBtn.addEventListener('click', async () => {
+            const res = await apiFetch(`${API_BASE}/billing/portal`, { method: 'POST' }).then(r => r.json()).catch(e => {
+                alert('Failed to open billing portal');
+                return {};
+            });
+            if (res.url) window.location.href = res.url;
+        });
+    }
+    modal.querySelector('#closeBillingBtn').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', e => {
+        if (e.target === modal) modal.remove();
+    });
+}
+
+async function startCheckout(plan) {
+    const res = await apiFetch(`${API_BASE}/billing/checkout/${plan}`, { method: 'POST' }).then(r => r.json()).catch(e => {
+        alert('Failed to start checkout');
+        console.error(e);
+        return {};
+    });
+    if (res.url) window.location.href = res.url;
 }
 
 function mobileTab(tab) {

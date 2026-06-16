@@ -1,7 +1,7 @@
 """Emergency data recovery endpoint — temporary, for restoring lost user data"""
 
 import os
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 
 router = APIRouter()
 
@@ -15,8 +15,10 @@ def get_recovery_key():
 
 
 @router.post("/admin/recover/nodes/{user_id}")
-async def recover_nodes_for_user(user_id: str):
-    """Assign all orphaned nodes to a user. Temporary — delete after use."""
+async def recover_nodes_for_user(user_id: str, request: Request):
+    key = request.headers.get("X-Recovery-Key", "")
+    if key != os.getenv("RECOVERY_KEY", ""):
+        raise HTTPException(status_code=403, detail="Invalid key")
 
     from ..db.database import get_database, NodeDB
     db = get_database()
@@ -42,8 +44,10 @@ async def recover_nodes_for_user(user_id: str):
 
 
 @router.get("/admin/recover/check/{user_id}")
-async def check_orphaned_nodes(user_id: str):
-    """Check how many nodes are orphaned for a user. Temporary — delete after use."""
+async def check_orphaned_nodes(user_id: str, request: Request):
+    key = request.headers.get("X-Recovery-Key", "")
+    if key != os.getenv("RECOVERY_KEY", ""):
+        raise HTTPException(status_code=403, detail="Invalid key")
 
     from ..db.database import get_database, NodeDB
     db = get_database()
@@ -75,7 +79,10 @@ async def check_orphaned_nodes(user_id: str):
 
 
 @router.post("/admin/recover/reset-usage/{user_id}")
-async def reset_usage(user_id: str):
+async def reset_usage(user_id: str, request: Request):
+    key = request.headers.get("X-Recovery-Key", "")
+    if key != os.getenv("RECOVERY_KEY", ""):
+        raise HTTPException(status_code=403, detail="Invalid key")
     """Reset token usage counter for a user (admin tool)."""
     from ..db.database import get_database, UserUsageDB
     from datetime import datetime
@@ -91,6 +98,9 @@ async def reset_usage(user_id: str):
 @router.post("/admin/recover/reprocess/{user_id}")
 async def reprocess_failed_nodes(request: Request, user_id: str):
     """Reset failed nodes to pending and process them in background."""
+    key = request.headers.get("X-Recovery-Key", "")
+    if key != os.getenv("RECOVERY_KEY", ""):
+        raise HTTPException(status_code=403, detail="Invalid key")
     import asyncio
     import threading
     from ..db.database import get_database, NodeDB

@@ -79,7 +79,7 @@ async def list_contexts(
     try:
         session = db.get_session()
         query = session.query(ContextDB).filter(
-            (ContextDB.user_id == current_user["id"]) | (ContextDB.user_id == None)
+            ContextDB.user_id == current_user["id"]
         )
 
         # Filter by type if specified
@@ -121,7 +121,7 @@ async def get_context(context_id: str, current_user: dict = Depends(get_current_
         session = db.get_session()
         db_context = session.query(ContextDB).filter(
             ContextDB.id == context_id,
-            (ContextDB.user_id == current_user["id"]) | (ContextDB.user_id == None)
+            ContextDB.user_id == current_user["id"]
         ).first()
         session.close()
 
@@ -155,7 +155,7 @@ async def update_context(request: Request, context_id: str, update_data: Context
 
         db_context = session.query(ContextDB).filter(
             ContextDB.id == context_id,
-            (ContextDB.user_id == current_user["id"]) | (ContextDB.user_id == None)
+            ContextDB.user_id == current_user["id"]
         ).first()
         if not db_context:
             session.close()
@@ -222,7 +222,7 @@ async def delete_context(request: Request, context_id: str, current_user: dict =
 
         db_context = session.query(ContextDB).filter(
             ContextDB.id == context_id,
-            (ContextDB.user_id == current_user["id"]) | (ContextDB.user_id == None)
+            ContextDB.user_id == current_user["id"]
         ).first()
         if not db_context:
             session.close()

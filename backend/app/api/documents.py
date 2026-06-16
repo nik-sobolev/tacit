@@ -1,6 +1,6 @@
 """Documents API endpoints"""
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Depends
 from typing import List
 import uuid
 from datetime import datetime
@@ -9,6 +9,7 @@ from pathlib import Path
 from ..models.document import Document, DocumentType, DocumentSearchQuery
 from ..services.document_service import DocumentProcessor
 from ..db.database import get_database, DocumentDB
+from ..core.auth import get_current_user
 
 router = APIRouter()
 
@@ -22,7 +23,8 @@ doc_processor = DocumentProcessor()
 @router.post("/documents/upload", response_model=Document)
 async def upload_document(
     request: Request,
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
 ):
     """Upload a document to the knowledge base"""
     try:
@@ -41,12 +43,9 @@ async def upload_document(
         file_size = len(content)
 
         # Check file size (50MB limit)
-        max_size = 50 * 1024 * 1024  # 50MB in bytes
+        max_size = 50 * 1024 * 1024
         if file_size > max_size:
-            raise HTTPException(
-                status_code=400,
-                detail=f"File too large. Maximum size: 50MB"
-            )
+            raise HTTPException(status_code=400, detail="File too large. Maximum size: 50MB")
 
         # Save file
         saved_path = doc_processor.save_file(file.filename, content)
@@ -65,15 +64,13 @@ async def upload_document(
             page_count=extraction_result.get('page_count'),
             word_count=extraction_result.get('word_count'),
             upload_date=datetime.utcnow(),
-            metadata={
-                'file_path': str(saved_path)
-            }
+            metadata={'file_path': str(saved_path)}
         )
 
-        # Store in SQLite
         session = db.get_session()
         db_document = DocumentDB(
             id=document_id,
+            user_id=current_user["id"],
             filename=saved_path.name,
             original_filename=file.filename,
             type=file_ext,
@@ -89,17 +86,13 @@ async def upload_document(
         session.commit()
         session.close()
 
-        # Add chunks to vector database
         chunks = extraction_result['chunks']
         for chunk in chunks:
             chunk['metadata']['document_id'] = document_id
             chunk['metadata']['filename'] = file.filename
             chunk['metadata']['type'] = file_ext
 
-        engine.vector_service.add_document_chunks(
-            document_id=document_id,
-            chunks=chunks
-        )
+        engine.vector_service.add_document_chunks(document_id=document_id, chunks=chunks)
 
         return document
 
@@ -112,23 +105,20 @@ async def upload_document(
 @router.get("/documents", response_model=List[Document])
 async def list_documents(
     type: DocumentType = None,
-    limit: int = 50
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
 ):
-    """List all uploaded documents"""
+    """List documents for the current user"""
     try:
         session = db.get_session()
-        query = session.query(DocumentDB)
+        query = session.query(DocumentDB).filter(DocumentDB.user_id == current_user["id"])
 
-        # Filter by type if specified
         if type:
             query = query.filter(DocumentDB.type == type.value)
 
-        # Sort by upload date descending
         query = query.order_by(DocumentDB.upload_date.desc())
-
         db_documents = query.limit(limit).all()
 
-        # Convert to Pydantic models
         documents = [
             Document(
                 id=doc.id,
@@ -154,11 +144,14 @@ async def list_documents(
 
 
 @router.get("/documents/{document_id}", response_model=Document)
-async def get_document(document_id: str):
+async def get_document(document_id: str, current_user: dict = Depends(get_current_user)):
     """Get a specific document by ID"""
     try:
         session = db.get_session()
-        db_document = session.query(DocumentDB).filter(DocumentDB.id == document_id).first()
+        db_document = session.query(DocumentDB).filter(
+            DocumentDB.id == document_id,
+            DocumentDB.user_id == current_user["id"]
+        ).first()
         session.close()
 
         if not db_document:
@@ -185,28 +178,32 @@ async def get_document(document_id: str):
 
 
 @router.delete("/documents/{document_id}")
-async def delete_document(request: Request, document_id: str):
+async def delete_document(
+    request: Request,
+    document_id: str,
+    current_user: dict = Depends(get_current_user)
+):
     """Delete a document"""
     try:
         engine = request.app.state.engine
         session = db.get_session()
 
-        db_document = session.query(DocumentDB).filter(DocumentDB.id == document_id).first()
+        db_document = session.query(DocumentDB).filter(
+            DocumentDB.id == document_id,
+            DocumentDB.user_id == current_user["id"]
+        ).first()
         if not db_document:
             session.close()
             raise HTTPException(status_code=404, detail="Document not found")
 
-        # Delete from vector database
         engine.vector_service.delete_document_chunks(document_id)
 
-        # Delete file from disk
         file_path_str = db_document.extra_metadata.get('file_path')
         if file_path_str:
             file_path = Path(file_path_str)
             if file_path.exists() and file_path.is_file():
                 doc_processor.delete_file(file_path)
 
-        # Delete from SQLite
         session.delete(db_document)
         session.commit()
         session.close()
@@ -220,30 +217,34 @@ async def delete_document(request: Request, document_id: str):
 
 
 @router.post("/documents/search")
-async def search_documents(request: Request, query: DocumentSearchQuery):
+async def search_documents(
+    request: Request,
+    query: DocumentSearchQuery,
+    current_user: dict = Depends(get_current_user)
+):
     """Search documents semantically"""
     try:
         engine = request.app.state.engine
 
-        # Build filter
         filter_dict = {}
         if query.document_types:
             filter_dict['type'] = [t.value for t in query.document_types]
 
-        # Search in vector database
         results = engine.vector_service.search_documents(
             query=query.query,
             limit=query.limit,
             filter=filter_dict if filter_dict else None
         )
 
-        # Enrich with document data from SQLite
         session = db.get_session()
         enriched_results = []
         for result in results:
             document_id = result['metadata'].get('document_id')
             if document_id:
-                db_document = session.query(DocumentDB).filter(DocumentDB.id == document_id).first()
+                db_document = session.query(DocumentDB).filter(
+                    DocumentDB.id == document_id,
+                    DocumentDB.user_id == current_user["id"]
+                ).first()
                 if db_document:
                     enriched_results.append({
                         'document_id': document_id,
@@ -256,34 +257,26 @@ async def search_documents(request: Request, query: DocumentSearchQuery):
 
         session.close()
 
-        return {
-            "query": query.query,
-            "results": enriched_results,
-            "count": len(enriched_results)
-        }
+        return {"query": query.query, "results": enriched_results, "count": len(enriched_results)}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/documents/stats/summary")
-async def get_documents_stats():
-    """Get statistics about uploaded documents"""
+async def get_documents_stats(current_user: dict = Depends(get_current_user)):
+    """Get statistics about uploaded documents for this user"""
     try:
         session = db.get_session()
-        all_docs = session.query(DocumentDB).all()
+        all_docs = session.query(DocumentDB).filter(DocumentDB.user_id == current_user["id"]).all()
 
         total_docs = len(all_docs)
         total_size = sum(doc.size_bytes for doc in all_docs)
         total_words = sum(doc.word_count or 0 for doc in all_docs)
 
-        # Group by type
         by_type = {}
         for doc in all_docs:
-            type_val = doc.type
-            if type_val not in by_type:
-                by_type[type_val] = 0
-            by_type[type_val] += 1
+            by_type[doc.type] = by_type.get(doc.type, 0) + 1
 
         session.close()
 

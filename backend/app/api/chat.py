@@ -198,18 +198,13 @@ async def list_conversations(
 ):
     """List conversations for the current user ordered by most recent activity"""
     from ..db.database import get_database, ConversationDB, MessageDB
-    from sqlalchemy import desc, or_
+    from sqlalchemy import desc
     db = get_database()
     session = db.get_session()
     try:
         convs = (
             session.query(ConversationDB)
-            .filter(
-                or_(
-                    ConversationDB.user_id == current_user["id"],
-                    ConversationDB.user_id.is_(None),  # legacy rows without user_id
-                )
-            )
+            .filter(ConversationDB.user_id == current_user["id"])
             .order_by(desc(ConversationDB.last_activity))
             .limit(limit)
             .all()

@@ -219,20 +219,7 @@ async def startup_event():
         model=config.default_model
     )
 
-    # Load user settings from DB into engine config
-    from .db.database import UserSettingsDB, get_database as _get_db
-    try:
-        with _get_db().session_scope() as s:
-            row = s.query(UserSettingsDB).filter_by(id="default").first()
-            if row:
-                if row.user_name:
-                    config.user_name = row.user_name
-                if row.user_role:
-                    config.user_role = row.user_role
-                if row.organization:
-                    config.user_organization = row.organization
-    except Exception:
-        pass
+    # User settings are now per-user (keyed by Clerk user_id), not loaded at startup
 
     # Ensure data directories exist (absolute paths anchored to backend/)
     from .db.database import DEFAULT_DATA_DIR
@@ -289,20 +276,23 @@ def _process_pending_nodes():
 
 
 def _migrate_add_user_id_to_contexts():
-    """Add user_id column to contexts table if it doesn't exist yet."""
+    """Add user_id column to any tables missing it, and add documents.user_id."""
     from .db.database import get_database
     try:
         db = get_database()
-        # Use raw SQL to add column if missing — works for both SQLite and Postgres
         with db.engine.connect() as conn:
-            try:
-                conn.execute(text("ALTER TABLE contexts ADD COLUMN user_id VARCHAR"))
-                conn.commit()
-                logger.info("migrated_contexts_user_id_column")
-            except Exception:
-                pass  # Column already exists — that's fine
+            for table, col in [
+                ("contexts", "user_id VARCHAR"),
+                ("documents", "user_id VARCHAR"),
+            ]:
+                try:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col}"))
+                    conn.commit()
+                    logger.info("migrated_column_added", table=table, col=col)
+                except Exception:
+                    pass  # Column already exists
     except Exception as e:
-        logger.warning("migrate_contexts_user_id_failed", error=str(e))
+        logger.warning("migrate_schema_failed", error=str(e))
 
 
 def _reindex_missing_nodes():
