@@ -43,6 +43,26 @@ async def recover_nodes_for_user(user_id: str, request: Request):
     }
 
 
+@router.post("/admin/recover/conversations/{user_id}")
+async def recover_conversations_for_user(user_id: str, request: Request):
+    key = request.headers.get("X-Recovery-Key", "")
+    if key != os.getenv("RECOVERY_KEY", ""):
+        raise HTTPException(status_code=403, detail="Invalid key")
+
+    from ..db.database import get_database, ConversationDB
+    db = get_database()
+
+    with db.session_scope() as session:
+        orphaned = session.query(ConversationDB).filter(ConversationDB.user_id == None).all()
+        count = 0
+        for conv in orphaned:
+            conv.user_id = user_id
+            count += 1
+        session.commit()
+
+    return {"recovered": count, "user_id": user_id, "status": "conversations reassigned"}
+
+
 @router.get("/admin/recover/check/{user_id}")
 async def check_orphaned_nodes(user_id: str, request: Request):
     key = request.headers.get("X-Recovery-Key", "")
