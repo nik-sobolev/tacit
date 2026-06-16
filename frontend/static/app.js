@@ -133,7 +133,10 @@ function addUserMenuToHeader(clerk) {
         billingItem.innerHTML = '<span style="font-size:16px">💳</span> Billing & Usage';
         billingItem.addEventListener('mouseenter', () => billingItem.style.background = 'rgba(255,255,255,0.05)');
         billingItem.addEventListener('mouseleave', () => billingItem.style.background = 'none');
-        billingItem.addEventListener('click', () => openBillingPanel());
+        billingItem.addEventListener('click', () => {
+            clerk.closeUserProfile();
+            setTimeout(() => openBillingPanel(), 200);
+        });
         navbar.appendChild(billingItem);
 
         // Sign out button
