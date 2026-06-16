@@ -85,14 +85,6 @@ function addUserMenuToHeader(clerk) {
         body: JSON.stringify({ user_name: fullName })
     }).catch(() => {});
 
-    // Billing button
-    const billingBtn = document.createElement('button');
-    billingBtn.className = 'icon-btn';
-    billingBtn.title = 'Billing & Usage';
-    billingBtn.textContent = '💳';
-    billingBtn.addEventListener('click', openBillingPanel);
-    actions.insertBefore(billingBtn, actions.firstChild);
-
     // User avatar button
     const userBtn = document.createElement('button');
     userBtn.className = 'icon-btn';
@@ -109,16 +101,18 @@ function addUserMenuToHeader(clerk) {
         mobileIcon.style.fontWeight = '700';
     }
 
-    // Inject sign-out button into Clerk's UserProfile modal sidebar when it opens
+    // Inject items into Clerk's UserProfile modal sidebar when it opens
     const observer = new MutationObserver(async () => {
         const navbar = document.querySelector('.cl-navbar');
         if (!navbar || navbar.querySelector('.tacit-signout-item')) return;
+
+        const btnStyle = 'display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:14px;font-family:inherit;border-radius:6px;';
 
         // iOS quick-add shortcut button
         const mobileItem = document.createElement('button');
         mobileItem.className = 'tacit-mobile-item cl-navbarButton';
         mobileItem.setAttribute('type', 'button');
-        mobileItem.style.cssText = 'display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;background:none;border:none;cursor:pointer;color:var(--text-secondary);font-size:14px;font-family:inherit;border-radius:6px;';
+        mobileItem.style.cssText = btnStyle;
         mobileItem.innerHTML = '<span style="font-size:16px">📱</span> iOS Shortcut';
         mobileItem.addEventListener('click', async () => {
             try {
@@ -130,6 +124,17 @@ function addUserMenuToHeader(clerk) {
             }
         });
         navbar.appendChild(mobileItem);
+
+        // Billing button
+        const billingItem = document.createElement('button');
+        billingItem.className = 'tacit-billing-item cl-navbarButton';
+        billingItem.setAttribute('type', 'button');
+        billingItem.style.cssText = btnStyle;
+        billingItem.innerHTML = '<span style="font-size:16px">💳</span> Billing & Usage';
+        billingItem.addEventListener('mouseenter', () => billingItem.style.background = 'rgba(255,255,255,0.05)');
+        billingItem.addEventListener('mouseleave', () => billingItem.style.background = 'none');
+        billingItem.addEventListener('click', () => openBillingPanel());
+        navbar.appendChild(billingItem);
 
         // Sign out button
         const item = document.createElement('button');
@@ -1040,6 +1045,7 @@ function mobileOpenProfile() {
         <div class="mobile-add-sheet">
             <p style="font-size:14px;color:var(--text-secondary);margin-bottom:16px">Account</p>
             <button class="mobile-add-option" id="mobileAccountBtn">👤 My Profile</button>
+            <button class="mobile-add-option" id="mobileBillingBtn">💳 Billing & Usage</button>
             <button class="mobile-add-option" id="mobileSignOutBtn" style="color:#bf4d28">↩ Sign Out</button>
         </div>
     `;
@@ -1047,9 +1053,12 @@ function mobileOpenProfile() {
 
     modal.querySelector('#mobileAccountBtn').addEventListener('click', () => {
         modal.remove();
-        if (window.Clerk) {
-            window.Clerk.openUserProfile();
-        }
+        if (window.Clerk) window.Clerk.openUserProfile();
+    });
+
+    modal.querySelector('#mobileBillingBtn').addEventListener('click', () => {
+        modal.remove();
+        openBillingPanel();
     });
 
     modal.querySelector('#mobileSignOutBtn').addEventListener('click', async () => {
