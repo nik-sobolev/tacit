@@ -133,10 +133,7 @@ function addUserMenuToHeader(clerk) {
         billingItem.innerHTML = '<span style="font-size:16px">💳</span> Billing & Usage';
         billingItem.addEventListener('mouseenter', () => billingItem.style.background = 'rgba(255,255,255,0.05)');
         billingItem.addEventListener('mouseleave', () => billingItem.style.background = 'none');
-        billingItem.addEventListener('click', () => {
-            clerk.closeUserProfile();
-            setTimeout(() => openBillingPanel(), 200);
-        });
+        billingItem.addEventListener('click', () => openBillingPanel());
         navbar.appendChild(billingItem);
 
         // Sign out button
@@ -958,6 +955,7 @@ async function openBillingPanel() {
 
     const modal = document.createElement('div');
     modal.className = 'mobile-add-modal';
+    modal.style.zIndex = '99999';
     modal.innerHTML = `
         <div class="mobile-add-sheet" style="max-width:500px;margin:auto">
             <h3 style="color:var(--text);margin-bottom:20px;font-size:18px">Billing & Usage</h3>
