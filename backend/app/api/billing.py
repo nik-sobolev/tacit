@@ -36,14 +36,14 @@ async def get_usage_status(current_user: dict = Depends(get_current_user)):
         usage = session.query(UserUsageDB).filter_by(user_id=current_user["id"]).first()
 
         if not usage:
-            # New user defaults to free plan
-            return {
-                "plan": "free",
-                "tokens_used": 0,
-                "tokens_limit": LIMITS["free"],
-                "pct_used": 0.0,
-                "period_start": datetime.utcnow().isoformat(),
-            }
+            usage = UserUsageDB(
+                user_id=current_user["id"],
+                plan="free",
+                tokens_used=0,
+                period_start=datetime.utcnow()
+            )
+            session.add(usage)
+            session.commit()
 
         plan = usage.plan
         limit = LIMITS.get(plan, LIMITS["free"])
@@ -144,25 +144,15 @@ async def stripe_webhook(request: Request):
         if user_id and customer_id:
             with db.session_scope() as db_session:
                 usage = db_session.query(UserUsageDB).filter_by(user_id=user_id).first()
-                if usage:
-                    usage.plan = plan
-                    usage.stripe_customer_id = customer_id
-                    usage.stripe_subscription_id = session.get("subscription")
-                    usage.updated_at = datetime.utcnow()
-                    db_session.commit()
-                    logger.info("subscription_created", user_id=user_id, plan=plan)
-                else:
-                    new_usage = UserUsageDB(
-                        user_id=user_id,
-                        plan=plan,
-                        stripe_customer_id=customer_id,
-                        stripe_subscription_id=session.get("subscription"),
-                        tokens_used=0,
-                        period_start=datetime.utcnow()
-                    )
-                    db_session.add(new_usage)
-                    db_session.commit()
-                    logger.info("subscription_created", user_id=user_id, plan=plan)
+                if not usage:
+                    usage = UserUsageDB(user_id=user_id, tokens_used=0, period_start=datetime.utcnow())
+                    db_session.add(usage)
+                usage.plan = plan
+                usage.stripe_customer_id = customer_id
+                usage.stripe_subscription_id = session.get("subscription")
+                usage.updated_at = datetime.utcnow()
+                db_session.commit()
+                logger.info("subscription_created", user_id=user_id, plan=plan)
 
     elif event["type"] == "customer.subscription.deleted":
         subscription = event["data"]["object"]
