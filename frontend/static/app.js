@@ -954,10 +954,9 @@ async function openBillingPanel() {
     }));
 
     const modal = document.createElement('div');
-    modal.className = 'mobile-add-modal';
-    modal.style.zIndex = '99999';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;';
     modal.innerHTML = `
-        <div class="mobile-add-sheet" style="max-width:500px;margin:auto">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px;width:420px;max-width:90vw;">
             <h3 style="color:var(--text);margin-bottom:20px;font-size:18px">Billing & Usage</h3>
 
             <div style="background:var(--surface);padding:16px;border-radius:8px;margin-bottom:20px">
@@ -975,17 +974,17 @@ async function openBillingPanel() {
             <div style="margin-bottom:20px">
                 <div style="color:var(--text-secondary);font-size:12px;margin-bottom:12px">UPGRADE OPTIONS</div>
                 ${status.plan === 'free' ? `
-                    <button class="mobile-add-option" id="upgradeToPro" style="margin-bottom:8px">⬆️ Pro — $9/month (500K tokens)</button>
-                    <button class="mobile-add-option" id="upgradeToPremium">⬆️ Premium — $19/month (1M tokens)</button>
+                    <button id="upgradeToPro" style="display:block;width:100%;padding:10px 14px;margin-bottom:8px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;">⬆️ Pro — $9/month (500K tokens)</button>
+                    <button id="upgradeToPremium" style="display:block;width:100%;padding:10px 14px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;">⬆️ Premium — $19/month (1M tokens)</button>
                 ` : status.plan === 'pro' ? `
-                    <button class="mobile-add-option" id="upgradeToPremium">⬆️ Upgrade to Premium — $19/month (1M tokens)</button>
-                    <button class="mobile-add-option" id="manageBilling" style="margin-top:8px">⚙️ Manage Subscription</button>
+                    <button id="upgradeToPremium" style="display:block;width:100%;padding:10px 14px;margin-bottom:8px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;">⬆️ Upgrade to Premium — $19/month (1M tokens)</button>
+                    <button id="manageBilling" style="display:block;width:100%;padding:10px 14px;background:var(--surface);color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;cursor:pointer;text-align:left;">⚙️ Manage Subscription</button>
                 ` : `
-                    <button class="mobile-add-option" id="manageBilling">⚙️ Manage Subscription</button>
+                    <button id="manageBilling" style="display:block;width:100%;padding:10px 14px;background:var(--surface);color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;cursor:pointer;text-align:left;">⚙️ Manage Subscription</button>
                 `}
             </div>
 
-            <button class="mobile-add-option" style="background:transparent;color:var(--text-tertiary);border:1px solid var(--border)" id="closeBillingBtn">Close</button>
+            <button id="closeBillingBtn" style="display:block;width:100%;padding:10px 14px;background:transparent;color:var(--text-tertiary);border:1px solid var(--border);border-radius:8px;font-size:14px;cursor:pointer;margin-top:8px;">Close</button>
         </div>
     `;
     document.body.appendChild(modal);
