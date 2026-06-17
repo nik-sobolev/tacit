@@ -72,23 +72,18 @@ async def create_checkout_session(plan: str, current_user: dict = Depends(get_cu
         raise HTTPException(status_code=500, detail="Stripe not configured")
 
     try:
-        session = stripe.checkout.Session.create(
+        checkout_params = dict(
             payment_method_types=["card"],
-            line_items=[
-                {
-                    "price": price_id,
-                    "quantity": 1,
-                }
-            ],
+            line_items=[{"price": price_id, "quantity": 1}],
             mode="subscription",
             success_url=f"{APP_DOMAIN}?billing=success",
             cancel_url=APP_DOMAIN,
-            customer_email=current_user.get("email"),
-            metadata={
-                "user_id": current_user["id"],
-                "plan": plan,
-            },
+            metadata={"user_id": current_user["id"], "plan": plan},
         )
+        email = current_user.get("email") or ""
+        if email:
+            checkout_params["customer_email"] = email
+        session = stripe.checkout.Session.create(**checkout_params)
         return {"url": session.url}
     except Exception as e:
         logger.error("stripe_checkout_error", error=str(e), plan=plan)
