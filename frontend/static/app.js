@@ -125,17 +125,6 @@ function addUserMenuToHeader(clerk) {
         });
         navbar.appendChild(mobileItem);
 
-        // Billing button
-        const billingItem = document.createElement('button');
-        billingItem.className = 'tacit-billing-item cl-navbarButton';
-        billingItem.setAttribute('type', 'button');
-        billingItem.style.cssText = btnStyle;
-        billingItem.innerHTML = '<span style="font-size:16px">💳</span> Billing & Usage';
-        billingItem.addEventListener('mouseenter', () => billingItem.style.background = 'rgba(255,255,255,0.05)');
-        billingItem.addEventListener('mouseleave', () => billingItem.style.background = 'none');
-        billingItem.addEventListener('click', () => openBillingPanel());
-        navbar.appendChild(billingItem);
-
         // Sign out button
         const item = document.createElement('button');
         item.className = 'tacit-signout-item cl-navbarButton';
@@ -1045,7 +1034,6 @@ function mobileOpenProfile() {
         <div class="mobile-add-sheet">
             <p style="font-size:14px;color:var(--text-secondary);margin-bottom:16px">Account</p>
             <button class="mobile-add-option" id="mobileAccountBtn">👤 My Profile</button>
-            <button class="mobile-add-option" id="mobileBillingBtn">💳 Billing & Usage</button>
             <button class="mobile-add-option" id="mobileSignOutBtn" style="color:#bf4d28">↩ Sign Out</button>
         </div>
     `;
@@ -1056,10 +1044,6 @@ function mobileOpenProfile() {
         if (window.Clerk) window.Clerk.openUserProfile();
     });
 
-    modal.querySelector('#mobileBillingBtn').addEventListener('click', () => {
-        modal.remove();
-        openBillingPanel();
-    });
 
     modal.querySelector('#mobileSignOutBtn').addEventListener('click', async () => {
         modal.remove();
@@ -1195,6 +1179,8 @@ async function loadUsageMeter() {
         const formatted = `${Math.round(used / 1000)}k / ${Math.round(limit / 1000)}k`;
         text.textContent = formatted;
         meter.style.display = 'block';
+        meter.style.cursor = 'pointer';
+        meter.onclick = () => openBillingPanel();
 
         // Color based on usage
         meter.classList.remove('near-limit', 'at-limit');
