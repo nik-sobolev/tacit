@@ -936,71 +936,75 @@ function isMobile() {
 
 async function openBillingPanel() {
     const status = await apiFetch(`${API_BASE}/billing/status`).then(r => r.json()).catch(() => ({
-        plan: 'free',
-        tokens_used: 0,
-        tokens_limit: 100_000,
-        pct_used: 0
+        plan: 'free', tokens_used: 0, tokens_limit: 100_000, pct_used: 0
     }));
+
+    const planLabel = { free: 'Free', pro: 'Pro', premium: 'Premium', superadmin: 'Unlimited' }[status.plan] || status.plan;
+    const planPrice = { pro: '$9 / month', premium: '$19 / month' }[status.plan] || '';
+    const barPct = Math.min(status.pct_used, 100);
+    const barColor = status.pct_used >= 95 ? '#e53e3e' : status.pct_used >= 80 ? '#ed8936' : '#c05621';
+
+    const upgradeBtn = status.plan === 'free'
+        ? `<button id="billingUpgradePro" style="display:block;width:100%;padding:10px 14px;margin-bottom:8px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;font-weight:600;">Pro — $9/month · 500K tokens</button>
+           <button id="billingUpgradePremium" style="display:block;width:100%;padding:10px 14px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;font-weight:600;">Premium — $19/month · 1M tokens</button>`
+        : status.plan === 'pro'
+        ? `<button id="billingUpgradePremium" style="display:block;width:100%;padding:10px 14px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;font-weight:600;">Upgrade to Premium — $19/month · 1M tokens</button>`
+        : '';
+
+    const portalBtn = (status.plan === 'pro' || status.plan === 'premium')
+        ? `<button id="billingPortal" style="display:block;width:100%;padding:10px 14px;margin-top:8px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;cursor:pointer;text-align:left;">Manage payment & cancel ↗</button>`
+        : '';
 
     const modal = document.createElement('div');
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;';
     modal.innerHTML = `
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px;width:420px;max-width:90vw;">
-            <h3 style="color:var(--text);margin-bottom:20px;font-size:18px">Billing & Usage</h3>
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:28px;width:400px;max-width:92vw;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
+                <h3 style="color:var(--text);font-size:17px;margin:0;">Usage & Subscription</h3>
+                <button id="billingClose" style="background:none;border:none;color:var(--text-tertiary);font-size:18px;cursor:pointer;padding:0 4px;">✕</button>
+            </div>
 
-            <div style="background:var(--surface);padding:16px;border-radius:8px;margin-bottom:20px">
-                <div style="color:var(--text-secondary);font-size:12px;margin-bottom:8px">CURRENT PLAN</div>
-                <div style="font-size:24px;color:var(--text);font-weight:700;text-transform:capitalize;margin-bottom:16px">${status.plan}</div>
+            <div style="margin-bottom:24px;">
+                <div style="font-size:22px;font-weight:700;color:var(--text);">${planLabel}</div>
+                ${planPrice ? `<div style="color:var(--text-secondary);font-size:14px;margin-top:2px;">${planPrice}</div>` : ''}
+            </div>
 
-                <div style="color:var(--text-secondary);font-size:12px;margin-bottom:4px">TOKEN USAGE</div>
-                <div style="color:var(--text);margin-bottom:8px">${status.tokens_used.toLocaleString()} / ${status.tokens_limit.toLocaleString()} tokens</div>
-                <div style="background:var(--border);height:8px;border-radius:4px;overflow:hidden">
-                    <div style="background:#c05621;height:100%;width:${status.pct_used}%"></div>
+            <div style="margin-bottom:24px;">
+                <div style="color:var(--text-secondary);font-size:11px;letter-spacing:0.05em;margin-bottom:8px;">TOKEN USAGE THIS MONTH</div>
+                <div style="color:var(--text);font-size:14px;margin-bottom:8px;">${status.tokens_used.toLocaleString()} / ${status.tokens_limit.toLocaleString()}</div>
+                <div style="background:var(--border);height:6px;border-radius:3px;overflow:hidden;">
+                    <div style="background:${barColor};height:100%;width:${barPct}%;transition:width 0.3s;"></div>
                 </div>
-                <div style="color:var(--text-tertiary);font-size:12px;margin-top:8px">${status.pct_used}% used</div>
+                <div style="color:var(--text-tertiary);font-size:12px;margin-top:6px;">${status.pct_used}% used</div>
             </div>
 
-            <div style="margin-bottom:20px">
-                <div style="color:var(--text-secondary);font-size:12px;margin-bottom:12px">UPGRADE OPTIONS</div>
-                ${status.plan === 'free' ? `
-                    <button id="upgradeToPro" style="display:block;width:100%;padding:10px 14px;margin-bottom:8px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;">⬆️ Pro — $9/month (500K tokens)</button>
-                    <button id="upgradeToPremium" style="display:block;width:100%;padding:10px 14px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;">⬆️ Premium — $19/month (1M tokens)</button>
-                ` : status.plan === 'pro' ? `
-                    <button id="upgradeToPremium" style="display:block;width:100%;padding:10px 14px;margin-bottom:8px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;">⬆️ Upgrade to Premium — $19/month (1M tokens)</button>
-                    <button id="manageBilling" style="display:block;width:100%;padding:10px 14px;background:var(--surface);color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;cursor:pointer;text-align:left;">⚙️ Manage Subscription</button>
-                ` : `
-                    <button id="manageBilling" style="display:block;width:100%;padding:10px 14px;background:var(--surface);color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;cursor:pointer;text-align:left;">⚙️ Manage Subscription</button>
-                `}
-            </div>
+            ${upgradeBtn || portalBtn ? `<div style="margin-bottom:8px;">${upgradeBtn}${portalBtn}</div>` : ''}
 
-            <button id="closeBillingBtn" style="display:block;width:100%;padding:10px 14px;background:transparent;color:var(--text-tertiary);border:1px solid var(--border);border-radius:8px;font-size:14px;cursor:pointer;margin-top:8px;">Close</button>
+            <button id="billingCloseBottom" style="display:block;width:100%;padding:9px 14px;background:transparent;color:var(--text-tertiary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;margin-top:8px;">Close</button>
         </div>
     `;
     document.body.appendChild(modal);
 
-    // Handle upgrade buttons
-    const upgradeProBtn = modal.querySelector('#upgradeToPro');
-    if (upgradeProBtn) {
-        upgradeProBtn.addEventListener('click', () => startCheckout('pro'));
-    }
-    const upgradePremiumBtn = modal.querySelector('#upgradeToPremium');
-    if (upgradePremiumBtn) {
-        upgradePremiumBtn.addEventListener('click', () => startCheckout('premium'));
-    }
-    const manageBtn = modal.querySelector('#manageBilling');
-    if (manageBtn) {
-        manageBtn.addEventListener('click', async () => {
-            const res = await apiFetch(`${API_BASE}/billing/portal`, { method: 'POST' }).then(r => r.json()).catch(e => {
-                alert('Failed to open billing portal');
-                return {};
-            });
-            if (res.url) window.location.href = res.url;
+    modal.querySelector('#billingClose').addEventListener('click', () => modal.remove());
+    modal.querySelector('#billingCloseBottom').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+
+    const proBtn = modal.querySelector('#billingUpgradePro');
+    if (proBtn) proBtn.addEventListener('click', () => startCheckout('pro'));
+
+    const premBtn = modal.querySelector('#billingUpgradePremium');
+    if (premBtn) premBtn.addEventListener('click', () => startCheckout('premium'));
+
+    const portalBtnEl = modal.querySelector('#billingPortal');
+    if (portalBtnEl) {
+        portalBtnEl.addEventListener('click', async () => {
+            portalBtnEl.textContent = 'Opening...';
+            portalBtnEl.disabled = true;
+            const res = await apiFetch(`${API_BASE}/billing/portal`, { method: 'POST' }).then(r => r.json()).catch(() => ({}));
+            if (res.url) window.open(res.url, '_blank');
+            else { portalBtnEl.textContent = 'Manage payment & cancel ↗'; portalBtnEl.disabled = false; }
         });
     }
-    modal.querySelector('#closeBillingBtn').addEventListener('click', () => modal.remove());
-    modal.addEventListener('click', e => {
-        if (e.target === modal) modal.remove();
-    });
 }
 
 async function startCheckout(plan) {
