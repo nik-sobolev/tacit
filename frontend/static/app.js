@@ -941,7 +941,8 @@ async function openBillingPanel() {
 
     const planLabel = { free: 'Free', pro: 'Pro', premium: 'Premium', superadmin: 'Unlimited' }[status.plan] || status.plan;
     const planPrice = { pro: '$9 / month', premium: '$19 / month' }[status.plan] || '';
-    const barPct = Math.min(status.pct_used, 100);
+    const isUnlimited = status.plan === 'superadmin';
+    const barPct = isUnlimited ? 0 : Math.min(status.pct_used, 100);
     const barColor = status.pct_used >= 95 ? '#e53e3e' : status.pct_used >= 80 ? '#ed8936' : '#c05621';
 
     const upgradeBtn = status.plan === 'free'
@@ -952,7 +953,7 @@ async function openBillingPanel() {
         : '';
 
     const portalBtn = (status.plan === 'pro' || status.plan === 'premium')
-        ? `<button id="billingPortal" style="display:block;width:100%;padding:10px 14px;margin-top:8px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;cursor:pointer;text-align:left;">Manage payment & cancel ↗</button>`
+        ? `<button id="billingPortal" style="display:block;width:100%;padding:10px 14px;margin-top:8px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;cursor:pointer;text-align:center;">Manage Subscription</button>`
         : '';
 
     const modal = document.createElement('div');
@@ -971,11 +972,14 @@ async function openBillingPanel() {
 
             <div style="margin-bottom:24px;">
                 <div style="color:var(--text-secondary);font-size:11px;letter-spacing:0.05em;margin-bottom:8px;">TOKEN USAGE THIS MONTH</div>
-                <div style="color:var(--text);font-size:14px;margin-bottom:8px;">${status.tokens_used.toLocaleString()} / ${status.tokens_limit.toLocaleString()}</div>
-                <div style="background:var(--border);height:6px;border-radius:3px;overflow:hidden;">
-                    <div style="background:${barColor};height:100%;width:${barPct}%;transition:width 0.3s;"></div>
-                </div>
-                <div style="color:var(--text-tertiary);font-size:12px;margin-top:6px;">${status.pct_used}% used</div>
+                ${isUnlimited
+                    ? `<div style="color:var(--text-secondary);font-size:14px;">${status.tokens_used.toLocaleString()} used · unlimited</div>`
+                    : `<div style="color:var(--text);font-size:14px;margin-bottom:8px;">${status.tokens_used.toLocaleString()} / ${status.tokens_limit.toLocaleString()}</div>
+                       <div style="background:var(--border);height:6px;border-radius:3px;overflow:hidden;">
+                           <div style="background:${barColor};height:100%;width:${barPct}%;transition:width 0.3s;"></div>
+                       </div>
+                       <div style="color:var(--text-tertiary);font-size:12px;margin-top:6px;">${status.pct_used}% used</div>`
+                }
             </div>
 
             ${upgradeBtn || portalBtn ? `<div style="margin-bottom:8px;">${upgradeBtn}${portalBtn}</div>` : ''}
@@ -1002,7 +1006,7 @@ async function openBillingPanel() {
             portalBtnEl.disabled = true;
             const res = await apiFetch(`${API_BASE}/billing/portal`, { method: 'POST' }).then(r => r.json()).catch(() => ({}));
             if (res.url) window.open(res.url, '_blank');
-            else { portalBtnEl.textContent = 'Manage payment & cancel ↗'; portalBtnEl.disabled = false; }
+            else { portalBtnEl.textContent = 'Manage Subscription'; portalBtnEl.disabled = false; }
         });
     }
 }
