@@ -1012,12 +1012,18 @@ async function openBillingPanel() {
 }
 
 async function startCheckout(plan) {
-    const res = await apiFetch(`${API_BASE}/billing/checkout/${plan}`, { method: 'POST' }).then(r => r.json()).catch(e => {
-        alert('Failed to start checkout');
+    try {
+        const r = await apiFetch(`${API_BASE}/billing/checkout/${plan}`, { method: 'POST' });
+        const res = await r.json();
+        if (res.url) {
+            window.location.href = res.url;
+        } else {
+            showToast(res.detail || 'Checkout failed — check Stripe config', 'error');
+        }
+    } catch (e) {
+        showToast('Checkout failed', 'error');
         console.error(e);
-        return {};
-    });
-    if (res.url) window.location.href = res.url;
+    }
 }
 
 function mobileTab(tab) {
