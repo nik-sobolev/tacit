@@ -191,3 +191,29 @@ async def set_superadmin(user_id: str, request: Request):
         session.commit()
     logger.info("superadmin_set", user_id=user_id)
     return {"status": "ok", "plan": "superadmin"}
+
+
+@router.post("/billing/set-plan/{user_id}/{plan}")
+async def set_plan(user_id: str, plan: str, request: Request):
+    """Set a user's plan manually. Protected by RECOVERY_KEY."""
+    key = request.headers.get("X-Recovery-Key", "")
+    expected_key = os.getenv("RECOVERY_KEY")
+    if not expected_key or key != expected_key:
+        raise HTTPException(status_code=403, detail="Invalid key")
+    if plan not in ("free", "pro", "premium", "superadmin"):
+        raise HTTPException(status_code=400, detail="Invalid plan")
+
+    db = get_database()
+    with db.session_scope() as session:
+        usage = session.query(UserUsageDB).filter_by(user_id=user_id).first()
+        if usage:
+            usage.plan = plan
+            usage.updated_at = datetime.utcnow()
+        else:
+            session.add(UserUsageDB(
+                user_id=user_id, plan=plan,
+                tokens_used=0, period_start=datetime.utcnow()
+            ))
+        session.commit()
+    logger.info("plan_set_manually", user_id=user_id, plan=plan)
+    return {"status": "ok", "plan": plan}
