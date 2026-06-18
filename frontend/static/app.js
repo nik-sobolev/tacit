@@ -1012,9 +1012,21 @@ async function openBillingPanel() {
         portalBtnEl.addEventListener('click', async () => {
             portalBtnEl.textContent = 'Opening...';
             portalBtnEl.disabled = true;
-            const res = await apiFetch(`${API_BASE}/billing/portal`, { method: 'POST' }).then(r => r.json()).catch(() => ({}));
-            if (res.url) window.open(res.url, '_blank');
-            else { portalBtnEl.textContent = 'Manage Subscription'; portalBtnEl.disabled = false; }
+            try {
+                const r = await apiFetch(`${API_BASE}/billing/portal`, { method: 'POST' });
+                const res = await r.json();
+                if (res.url) {
+                    window.open(res.url, '_blank');
+                } else if (res.detail === 'No active subscription') {
+                    showToast('No Stripe subscription found — contact support@trytacit.app', 'error');
+                } else {
+                    showToast(res.detail || 'Failed to open portal', 'error');
+                }
+            } catch (e) {
+                showToast('Failed to open portal', 'error');
+            }
+            portalBtnEl.textContent = 'Manage Subscription';
+            portalBtnEl.disabled = false;
         });
     }
 }
