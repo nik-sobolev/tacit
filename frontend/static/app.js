@@ -58,6 +58,7 @@ async function initAuth() {
 
         document.querySelector('.app-root').style.visibility = 'visible';
         getAuthToken = () => clerk.session.getToken();
+        localStorage.removeItem('tacit_session_id'); // clear legacy unscoped key
         addUserMenuToHeader(clerk);
         return true;
     } catch (e) {
@@ -152,6 +153,13 @@ async function apiFetch(url, opts = {}) {
             'Content-Type': opts.body && typeof opts.body === 'string' ? 'application/json' : (opts.headers?.['Content-Type'] || 'application/json'),
         }
     });
+}
+
+// ==================== USER-SCOPED STORAGE ====================
+
+function sessionStorageKey() {
+    const uid = clerkInstance?.user?.id || 'anon';
+    return `tacit_session_id_${uid}`;
 }
 
 // ==================== CANVAS STATE ====================
@@ -1309,7 +1317,7 @@ function initChatResize() {
 
 
 async function restoreOrStartSession() {
-    const saved = localStorage.getItem('tacit_session_id');
+    const saved = localStorage.getItem(sessionStorageKey());
     if (saved) {
         currentSessionId = saved;
         try {
@@ -1337,7 +1345,7 @@ async function restoreOrStartSession() {
             if (convos.length > 0 && convos[0].message_count > 0) {
                 const sessionId = convos[0].session_id;
                 currentSessionId = sessionId;
-                localStorage.setItem('tacit_session_id', currentSessionId);
+                localStorage.setItem(sessionStorageKey(), currentSessionId);
                 const msgRes = await apiFetch(`${API_BASE}/chat/history/${sessionId}`);
                 if (msgRes.ok) {
                     const msgData = await msgRes.json();
@@ -1355,13 +1363,13 @@ async function restoreOrStartSession() {
     }
 
     currentSessionId = generateSessionId();
-    localStorage.setItem('tacit_session_id', currentSessionId);
+    localStorage.setItem(sessionStorageKey(), currentSessionId);
     addWelcomeMessage();
 }
 
 function startNewChat() {
     currentSessionId = generateSessionId();
-    localStorage.setItem('tacit_session_id', currentSessionId);
+    localStorage.setItem(sessionStorageKey(), currentSessionId);
     document.getElementById('messages').innerHTML = '';
     addWelcomeMessage();
 }
@@ -1626,7 +1634,7 @@ function buildHistoryItem(c) {
 
 async function loadConversation(sessionId) {
     currentSessionId = sessionId;
-    localStorage.setItem('tacit_session_id', sessionId);
+    localStorage.setItem(sessionStorageKey(), sessionId);
     document.getElementById('messages').innerHTML = '';
     try {
         const res = await apiFetch(`${API_BASE}/chat/history/${sessionId}`);
@@ -1675,7 +1683,7 @@ async function sendMessage() {
         if (!res.ok) throw new Error(`Server error: ${res.status}`);
         const data = await res.json();
         removeMessage(loadingId);
-        localStorage.setItem('tacit_session_id', currentSessionId);
+        localStorage.setItem(sessionStorageKey(), currentSessionId);
         addMessage('assistant', data.response, false, data.sources || []);
 
         // Handle canvas actions (e.g. edges created/removed via chat)
