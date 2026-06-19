@@ -1061,14 +1061,33 @@ function mobileTab(tab) {
     }
 }
 
-function mobileOpenProfile() {
+async function mobileOpenProfile() {
+    // Fetch billing status to show correct options
+    const status = await apiFetch(`${API_BASE}/billing/status`).then(r => r.json()).catch(() => ({
+        plan: 'free', tokens_used: 0, tokens_limit: 100_000, pct_used: 0
+    }));
+
+    const planLabel = { free: 'Free', pro: 'Pro', premium: 'Premium', superadmin: 'Unlimited' }[status.plan] || status.plan;
+
+    const billingButtons = status.plan === 'free'
+        ? `<button class="mobile-add-option" id="mobileUpgradeProBtn">⬆️ Upgrade to Pro — $9/month</button>
+           <button class="mobile-add-option" id="mobileUpgradePremiumBtn">⬆️ Upgrade to Premium — $19/month</button>`
+        : status.plan === 'pro'
+        ? `<button class="mobile-add-option" id="mobileUpgradePremiumBtn">⬆️ Upgrade to Premium — $19/month</button>
+           <button class="mobile-add-option" id="mobileManageSubBtn">💳 Manage Subscription</button>`
+        : status.plan === 'premium'
+        ? `<button class="mobile-add-option" id="mobileManageSubBtn">💳 Manage Subscription</button>`
+        : '';
+
     const modal = document.createElement('div');
     modal.className = 'mobile-add-modal';
     modal.innerHTML = `
         <div class="mobile-add-sheet">
-            <p style="font-size:14px;color:var(--text-secondary);margin-bottom:16px">Account</p>
+            <p style="font-size:14px;color:var(--text-secondary);margin-bottom:4px">Account</p>
+            <p style="font-size:12px;color:var(--text-tertiary);margin-bottom:16px">Plan: ${planLabel} · ${Math.round(status.tokens_used/1000)}k / ${Math.round(status.tokens_limit/1000)}k tokens</p>
             <button class="mobile-add-option" id="mobileAccountBtn">👤 My Profile</button>
-            <button class="mobile-add-option" id="mobileSignOutBtn" style="color:#bf4d28">↩ Sign Out</button>
+            ${billingButtons}
+            <button class="mobile-add-option" id="mobileSignOutBtn" style="color:#bf4d28;margin-top:8px">↩ Sign Out</button>
         </div>
     `;
     document.body.appendChild(modal);
@@ -1078,6 +1097,26 @@ function mobileOpenProfile() {
         if (window.Clerk) window.Clerk.openUserProfile();
     });
 
+    const upgradeProBtn = modal.querySelector('#mobileUpgradeProBtn');
+    if (upgradeProBtn) upgradeProBtn.addEventListener('click', () => { modal.remove(); startCheckout('pro'); });
+
+    const upgradePremiumBtn = modal.querySelector('#mobileUpgradePremiumBtn');
+    if (upgradePremiumBtn) upgradePremiumBtn.addEventListener('click', () => { modal.remove(); startCheckout('premium'); });
+
+    const manageSubBtn = modal.querySelector('#mobileManageSubBtn');
+    if (manageSubBtn) {
+        manageSubBtn.addEventListener('click', async () => {
+            modal.remove();
+            try {
+                const r = await apiFetch(`${API_BASE}/billing/portal`, { method: 'POST' });
+                const res = await r.json();
+                if (res.url) window.open(res.url, '_blank');
+                else showToast(res.detail || 'Failed to open portal', 'error');
+            } catch (e) {
+                showToast('Failed to open portal', 'error');
+            }
+        });
+    }
 
     modal.querySelector('#mobileSignOutBtn').addEventListener('click', async () => {
         modal.remove();
