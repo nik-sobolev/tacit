@@ -72,6 +72,7 @@ async def create_checkout_session(plan: str, current_user: dict = Depends(get_cu
         raise HTTPException(status_code=500, detail="Stripe not configured")
 
     try:
+        email = current_user.get("email") or ""
         checkout_params = dict(
             payment_method_types=["card"],
             line_items=[{"price": price_id, "quantity": 1}],
@@ -79,8 +80,9 @@ async def create_checkout_session(plan: str, current_user: dict = Depends(get_cu
             success_url=f"{APP_DOMAIN}?billing=success",
             cancel_url=APP_DOMAIN,
             metadata={"user_id": current_user["id"], "plan": plan},
+            payment_method_collection="always",
         )
-        email = current_user.get("email") or ""
+        # Pass email so Stripe pre-fills the correct account, not a cached Link session
         if email:
             checkout_params["customer_email"] = email
         session = stripe.checkout.Session.create(**checkout_params)
