@@ -172,6 +172,24 @@
         <button id="showAllBtn" class="show-all-btn">Show All</button>
     </aside>
 
+    <!-- Onboarding Tour Modal -->
+    <div id="tourModal" class="tour-modal" style="display:none">
+        <div class="tour-overlay"></div>
+        <div class="tour-panel">
+            <div class="tour-header">
+                <h3 id="tourTitle">Welcome to Tacit</h3>
+                <button class="tour-close">✕</button>
+            </div>
+            <div class="tour-body">
+                <p id="tourText"></p>
+            </div>
+            <div class="tour-footer">
+                <button class="tour-btn-prev">← Back</button>
+                <div class="tour-progress"><span id="tourStep"></span></div>
+                <button class="tour-btn-next">Next →</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Toast -->
     <div id="toast" class="toast"></div>
