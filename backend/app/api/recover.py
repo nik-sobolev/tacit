@@ -24,10 +24,8 @@ async def recover_nodes_for_user(user_id: str, request: Request):
     db = get_database()
 
     with db.session_scope() as session:
-        # Find all nodes with NULL or mismatched user_id
-        orphaned = session.query(NodeDB).filter(
-            (NodeDB.user_id == None) | (NodeDB.user_id != user_id)
-        ).all()
+        # ONLY assign nodes with NULL user_id — never touch nodes owned by another user
+        orphaned = session.query(NodeDB).filter(NodeDB.user_id == None).all()
 
         count = 0
         for node in orphaned:
@@ -74,9 +72,7 @@ async def check_orphaned_nodes(user_id: str, request: Request):
 
     with db.session_scope() as session:
         from sqlalchemy import func
-        orphaned = session.query(NodeDB).filter(
-            (NodeDB.user_id == None) | (NodeDB.user_id != user_id)
-        ).count()
+        orphaned = session.query(NodeDB).filter(NodeDB.user_id == None).count()
         user_nodes = session.query(NodeDB).filter_by(user_id=user_id).count()
         # Status breakdown for user's nodes
         statuses = session.query(NodeDB.status, func.count(NodeDB.id)).filter_by(user_id=user_id).group_by(NodeDB.status).all()
