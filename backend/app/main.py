@@ -176,8 +176,9 @@ async def app_canvas():
 
 
 @app.get("/sign-in", response_class=HTMLResponse)
-async def sign_in():
-    """Serve the branded Clerk sign-in page"""
+@app.get("/sign-in/{rest:path}", response_class=HTMLResponse)
+async def sign_in(rest: str = ""):
+    """Serve branded Clerk sign-in — catches all sub-routes (verify, factor-one, etc.)"""
     html_file = frontend_path / "sign-in.html"
     if html_file.exists():
         return html_file.read_text()
@@ -185,12 +186,10 @@ async def sign_in():
 
 
 @app.get("/sign-up", response_class=HTMLResponse)
-async def sign_up():
-    """Serve the branded Clerk sign-up page"""
-    html_file = frontend_path / "sign-up.html"
-    if html_file.exists():
-        return html_file.read_text()
-    return HTMLResponse('<script>window.location="/app"</script>')
+@app.get("/sign-up/{rest:path}", response_class=HTMLResponse)
+async def sign_up(rest: str = ""):
+    """Redirect sign-up to sign-in — Clerk handles sign-up internally"""
+    return HTMLResponse('<script>window.location="/sign-in"</script>')
 
 
 @app.get("/api/health")
