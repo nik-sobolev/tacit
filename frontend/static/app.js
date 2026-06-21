@@ -1269,47 +1269,30 @@ async function loadUsageMeter() {
 
 function show402Modal() {
     const modal = document.createElement('div');
-    modal.style.cssText = `
-        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
-        z-index: 10000;
-    `;
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:99999;';
     modal.innerHTML = `
-        <div style="
-            background: var(--surface); border: 1px solid var(--border);
-            border-radius: 12px; padding: 24px; max-width: 400px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        ">
-            <h2 style="margin: 0 0 12px 0; color: var(--text); font-size: 18px;">Token Limit Reached</h2>
-            <p style="margin: 0 0 20px 0; color: var(--text-secondary); font-size: 14px;">
-                You've used your monthly token allowance. Upgrade to Pro for $9/mo to continue.
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:28px;width:380px;max-width:92vw;">
+            <h3 style="color:var(--text);font-size:17px;margin:0 0 8px 0;">Token limit reached</h3>
+            <p style="color:var(--text-secondary);font-size:14px;margin:0 0 24px 0;">
+                You've used your monthly allowance. Upgrade to keep going.
             </p>
-            <div style="display: flex; gap: 12px;">
-                <button id="upgradeBtn" style="
-                    flex: 1; padding: 10px; background: #bf4d28; color: white;
-                    border: none; border-radius: 6px; cursor: pointer; font-weight: 500;
-                ">Go Pro</button>
-                <button id="closeModal" style="
-                    flex: 1; padding: 10px; background: var(--surface-hover); color: var(--text);
-                    border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
-                ">Cancel</button>
-            </div>
+            <button id="modal402Pro" style="display:block;width:100%;padding:11px 14px;margin-bottom:8px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;text-align:left;">
+                Pro — $9/month · 500K tokens
+            </button>
+            <button id="modal402Premium" style="display:block;width:100%;padding:11px 14px;margin-bottom:16px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;text-align:left;">
+                Premium — $19/month · 1M tokens
+            </button>
+            <button id="modal402Close" style="display:block;width:100%;padding:9px 14px;background:transparent;color:var(--text-tertiary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;">
+                Maybe later
+            </button>
         </div>
     `;
     document.body.appendChild(modal);
 
-    document.getElementById('upgradeBtn').addEventListener('click', async () => {
-        try {
-            const res = await apiFetch(`${API_BASE}/billing/checkout`, { method: 'POST' });
-            if (res.ok) {
-                const data = await res.json();
-                window.location = data.url;
-            }
-        } catch (e) {
-            showToast('Failed to open checkout', 'error');
-        }
-    });
-    document.getElementById('closeModal').addEventListener('click', () => modal.remove());
+    modal.querySelector('#modal402Pro').addEventListener('click', () => { modal.remove(); startCheckout('pro'); });
+    modal.querySelector('#modal402Premium').addEventListener('click', () => { modal.remove(); startCheckout('premium'); });
+    modal.querySelector('#modal402Close').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
 }
 
 // ==================== CHAT ====================

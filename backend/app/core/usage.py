@@ -8,7 +8,7 @@ from ..db.database import get_database, UserUsageDB
 
 logger = structlog.get_logger()
 
-LIMITS = {"free": 100_000, "pro": 2_000_000}
+LIMITS = {"free": 100_000, "pro": 500_000, "premium": 1_000_000}
 SUPERADMIN_EMAILS = {"nicksable@gmail.com"}
 SUPERADMIN_USER_IDS = {"user_3EVAoYRU4XFtkVMgBhvdoFV3xOd"}
 
