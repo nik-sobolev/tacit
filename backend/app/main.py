@@ -188,8 +188,11 @@ async def sign_in(rest: str = ""):
 @app.get("/sign-up", response_class=HTMLResponse)
 @app.get("/sign-up/{rest:path}", response_class=HTMLResponse)
 async def sign_up(rest: str = ""):
-    """Redirect sign-up to sign-in — Clerk handles sign-up internally"""
-    return HTMLResponse('<script>window.location="/sign-in"</script>')
+    """Serve sign-in page for all sign-up routes — Clerk handles sign-up internally"""
+    html_file = frontend_path / "sign-in.html"
+    if html_file.exists():
+        return html_file.read_text()
+    return HTMLResponse('<script>window.location="/app"</script>')
 
 
 @app.get("/api/health")
