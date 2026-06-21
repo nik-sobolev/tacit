@@ -158,41 +158,39 @@ async def share_canvas(token: str):
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    """Serve the main Tacit interface"""
-    html_file = frontend_path / "index.html"
-
+    """Serve the Tacit landing page"""
+    html_file = frontend_path / "landing.html"
     if html_file.exists():
         return html_file.read_text()
+    # Fallback if landing not ready
+    return HTMLResponse('<script>window.location="/app"</script>')
 
-    # Temporary landing page if frontend not ready
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Tacit - Your Personal Work Twin</title>
-        <style>
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                max-width: 800px;
-                margin: 100px auto;
-                padding: 20px;
-                text-align: center;
-            }
-            h1 { font-size: 48px; margin-bottom: 20px; }
-            p { font-size: 20px; color: #666; }
-            a { color: #007bff; text-decoration: none; }
-        </style>
-    </head>
-    <body>
-        <h1>🧠 Tacit</h1>
-        <p>Your Personal Work Twin</p>
-        <p style="margin-top: 40px;">
-            <a href="/api/health">API Health Check</a> |
-            <a href="/docs">API Documentation</a>
-        </p>
-    </body>
-    </html>
-    """
+
+@app.get("/app", response_class=HTMLResponse)
+async def app_canvas():
+    """Serve the main Tacit canvas app"""
+    html_file = frontend_path / "index.html"
+    if html_file.exists():
+        return html_file.read_text()
+    return HTMLResponse('<script>window.location="/"</script>')
+
+
+@app.get("/sign-in", response_class=HTMLResponse)
+async def sign_in():
+    """Serve the branded Clerk sign-in page"""
+    html_file = frontend_path / "sign-in.html"
+    if html_file.exists():
+        return html_file.read_text()
+    return HTMLResponse('<script>window.location="/app"</script>')
+
+
+@app.get("/sign-up", response_class=HTMLResponse)
+async def sign_up():
+    """Serve the branded Clerk sign-up page"""
+    html_file = frontend_path / "sign-up.html"
+    if html_file.exists():
+        return html_file.read_text()
+    return HTMLResponse('<script>window.location="/app"</script>')
 
 
 @app.get("/api/health")

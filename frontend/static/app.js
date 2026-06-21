@@ -47,12 +47,40 @@ async function initAuth() {
             await new Promise(r => setTimeout(r, 100));
         }
         if (!window.Clerk) throw new Error('Clerk JS failed to load from clerk.trytacit.app');
-        await window.Clerk.load();
+        await window.Clerk.load({
+            appearance: {
+                variables: {
+                    colorPrimary: '#C26C33',
+                    colorBackground: '#191C24',
+                    colorText: '#ECE6D6',
+                    colorTextSecondary: '#A8A395',
+                    colorInputBackground: '#13151A',
+                    colorInputText: '#ECE6D6',
+                    colorDanger: '#A8442C',
+                    colorSuccess: '#43707A',
+                    borderRadius: '3px',
+                    fontFamily: '"Hanken Grotesk", system-ui, sans-serif',
+                    fontFamilyButtons: '"IBM Plex Mono", ui-monospace, monospace',
+                },
+                elements: {
+                    card: {
+                        backgroundColor: '#191C24',
+                        border: '1px solid rgba(236,230,214,0.13)',
+                        borderRadius: '8px',
+                        boxShadow: '0 30px 70px rgba(0,0,0,0.55)',
+                    },
+                    headerTitle: { fontFamily: '"Newsreader", Georgia, serif', fontWeight: '500', color: '#F2ECDD', fontSize: '27px' },
+                    headerSubtitle: { color: '#A8A395' },
+                    formButtonPrimary: { backgroundColor: '#C26C33', color: '#15171C', fontFamily: '"IBM Plex Mono", monospace', letterSpacing: '0.03em' },
+                    footerActionLink: { color: '#C26C33', fontWeight: '600' },
+                },
+            },
+        });
         const clerk = window.Clerk;
         clerkInstance = clerk;
 
         if (!clerk.user) {
-            await clerk.redirectToSignIn({ redirectUrl: window.location.href });
+            window.location.href = '/sign-in?redirect_url=' + encodeURIComponent(window.location.href);
             return false;
         }
 

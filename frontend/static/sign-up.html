@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Start your canvas — Tacit</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script>window.CLERK_PUBLISHABLE_KEY = "pk_live_Y2xlcmsudHJ5dGFjaXQuYXBwJA";</script>
+    <script async crossorigin="anonymous" data-clerk-publishable-key="pk_live_Y2xlcmsudHJ5dGFjaXQuYXBwJA" src="https://clerk.trytacit.app/npm/@clerk/clerk-js@5/dist/clerk.browser.js" type="text/javascript"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
+        ::selection { background: #C26C33; color: #15171C; }
+        body {
+            background-color: #15171C;
+            background-image:
+                linear-gradient(rgba(236,230,214,0.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(236,230,214,0.035) 1px, transparent 1px);
+            background-size: 44px 44px;
+            font-family: 'Hanken Grotesk', system-ui, sans-serif;
+            color: #ECE6D6;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 48px 24px;
+            position: relative;
+            overflow: hidden;
+        }
+        body::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, transparent 60%, rgba(194,108,51,0.06) 100%);
+            pointer-events: none;
+        }
+        .brand {
+            position: absolute;
+            top: 28px;
+            left: 34px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+        }
+        .brand-name {
+            font-family: 'Newsreader', serif;
+            font-weight: 500;
+            font-size: 19px;
+            letter-spacing: 0.22em;
+            padding-left: 0.22em;
+            color: #ECE6D6;
+        }
+        #clerk-sign-up {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 430px;
+        }
+    </style>
+</head>
+<body>
+    <a href="/" class="brand">
+        <svg width="28" height="28" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M3 33 V3 H31 V31 H11 V11 H23 V23 H17.5" stroke="#C26C33" stroke-width="2.6" stroke-linecap="square"/>
+        </svg>
+        <span class="brand-name">TACIT</span>
+    </a>
+
+    <div id="clerk-sign-up"></div>
+
+    <script>
+    const tacitAppearance = {
+        variables: {
+            colorPrimary: '#C26C33',
+            colorBackground: '#191C24',
+            colorText: '#ECE6D6',
+            colorTextSecondary: '#A8A395',
+            colorInputBackground: '#13151A',
+            colorInputText: '#ECE6D6',
+            colorDanger: '#A8442C',
+            colorSuccess: '#43707A',
+            borderRadius: '3px',
+            fontFamily: '"Hanken Grotesk", system-ui, sans-serif',
+            fontFamilyButtons: '"IBM Plex Mono", ui-monospace, monospace',
+        },
+        elements: {
+            rootBox: { width: '100%' },
+            card: {
+                backgroundColor: '#191C24',
+                border: '1px solid rgba(236,230,214,0.13)',
+                borderRadius: '8px',
+                boxShadow: '0 30px 70px rgba(0,0,0,0.55)',
+            },
+            headerTitle: {
+                fontFamily: '"Newsreader", Georgia, serif',
+                fontWeight: '500',
+                color: '#F2ECDD',
+                fontSize: '27px',
+            },
+            headerSubtitle: { color: '#A8A395' },
+            socialButtonsBlockButton: {
+                backgroundColor: 'transparent',
+                border: '1px solid rgba(236,230,214,0.18)',
+                color: '#ECE6D6',
+            },
+            dividerLine: { backgroundColor: 'rgba(236,230,214,0.12)' },
+            dividerText: {
+                fontFamily: '"IBM Plex Mono", monospace',
+                textTransform: 'uppercase',
+                letterSpacing: '0.1em',
+                color: '#857F70',
+                fontSize: '11px',
+            },
+            formFieldLabel: {
+                fontFamily: '"IBM Plex Mono", monospace',
+                textTransform: 'uppercase',
+                letterSpacing: '0.1em',
+                fontSize: '11px',
+                color: '#B7B2A2',
+            },
+            formFieldInput: {
+                backgroundColor: '#13151A',
+                border: '1px solid rgba(236,230,214,0.16)',
+                color: '#ECE6D6',
+            },
+            formButtonPrimary: {
+                backgroundColor: '#C26C33',
+                color: '#15171C',
+                fontFamily: '"IBM Plex Mono", monospace',
+                letterSpacing: '0.03em',
+                border: 'none',
+            },
+            footer: { backgroundColor: '#191C24' },
+            footerActionText: { color: '#A8A395' },
+            footerActionLink: { color: '#C26C33', fontWeight: '600' },
+        },
+        layout: {
+            socialButtonsPlacement: 'top',
+            logoImageUrl: '/static/tacit-mark.svg',
+        },
+    };
+
+    async function init() {
+        await new Promise(resolve => {
+            if (document.readyState === 'complete') resolve();
+            else window.addEventListener('load', resolve, { once: true });
+        });
+        let attempts = 0;
+        while (!window.Clerk && attempts++ < 50) {
+            await new Promise(r => setTimeout(r, 100));
+        }
+        if (!window.Clerk) return;
+
+        await window.Clerk.load({ appearance: tacitAppearance });
+
+        if (window.Clerk.user) {
+            window.location.href = '/app';
+            return;
+        }
+
+        window.Clerk.mountSignUp(document.getElementById('clerk-sign-up'), {
+            routing: 'path',
+            path: '/sign-up',
+            signInUrl: '/sign-in',
+            afterSignInUrl: '/app',
+            afterSignUpUrl: '/app',
+        });
+    }
+    init();
+    </script>
+</body>
+</html>

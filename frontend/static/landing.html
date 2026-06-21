@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tacit — Your AI Second Brain</title>
+<meta name="description" content="Drop any URL. Tacit transcribes it, summarizes it, and places it on an infinite canvas where it connects to everything related. Then you just ask.">
+<meta property="og:title" content="Tacit — Your AI Second Brain">
+<meta property="og:description" content="Capture YouTube, articles, tweets, and any webpage. Ask questions. Find connections.">
+<meta property="og:image" content="https://www.trytacit.app/static/og-image.png">
+<meta property="og:url" content="https://www.trytacit.app">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://www.trytacit.app/static/og-image.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: #15171C; }
+  ::selection { background: #C26C33; color: #15171C; }
+  @media (max-width: 768px) {
+    .hero-grid { grid-template-columns: 1fr !important; }
+    .steps-grid { grid-template-columns: 1fr !important; }
+    .features-grid { grid-template-columns: 1fr !important; }
+    .features-grid [style*="grid-column:span 2"] { grid-column: span 1 !important; }
+    .nav-links { display: none !important; }
+    h1 { font-size: 38px !important; }
+    .cta-heading { font-size: 32px !important; }
+    .cta-section { padding: 48px 20px !important; }
+    section, header { padding-left: 20px !important; padding-right: 20px !important; }
+  }
+</style>
+</head>
+<body>
+<div style="background:#15171C; background-image:linear-gradient(rgba(236,230,214,0.035) 1px,transparent 1px),linear-gradient(90deg,rgba(236,230,214,0.035) 1px,transparent 1px); background-size:44px 44px; color:#ECE6D6; font-family:'Hanken Grotesk',sans-serif; min-height:100vh; overflow-x:hidden; position:relative;">
+
+  <!-- NAV -->
+  <nav style="position:sticky; top:0; z-index:50; display:flex; align-items:center; justify-content:space-between; padding:20px 40px; background:rgba(21,23,28,0.82); backdrop-filter:blur(12px); border-bottom:1px solid rgba(236,230,214,0.10);">
+    <a href="/" style="display:flex; align-items:center; gap:13px; text-decoration:none;">
+      <svg width="30" height="30" viewBox="0 0 34 34" fill="none" aria-hidden="true"><path d="M3 33 V3 H31 V31 H11 V11 H23 V23 H17.5" stroke="#C26C33" stroke-width="2.6" stroke-linecap="square"/></svg>
+      <span style="font-family:'Newsreader',serif; font-weight:500; font-size:21px; letter-spacing:0.24em; color:#ECE6D6; line-height:1; padding-left:0.24em;">TACIT</span>
+    </a>
+    <div class="nav-links" style="display:flex; align-items:center; gap:34px;">
+      <a href="#how" style="font-family:'IBM Plex Mono',monospace; font-size:12.5px; letter-spacing:0.04em; color:#A8A395; text-decoration:none;">How it works</a>
+      <a href="#features" style="font-family:'IBM Plex Mono',monospace; font-size:12.5px; letter-spacing:0.04em; color:#A8A395; text-decoration:none;">Features</a>
+      <a href="/sign-in" style="font-family:'IBM Plex Mono',monospace; font-size:12.5px; letter-spacing:0.04em; color:#15171C; text-decoration:none; background:#C26C33; padding:9px 16px; border-radius:2px;">Open Tacit</a>
+    </div>
+    <a href="/sign-in" style="display:none; font-family:'IBM Plex Mono',monospace; font-size:12px; color:#15171C; text-decoration:none; background:#C26C33; padding:8px 14px; border-radius:2px;" class="nav-mobile-cta">Open Tacit</a>
+  </nav>
+
+  <!-- HERO -->
+  <header style="position:relative; max-width:1320px; margin:0 auto; padding:84px 40px 64px; display:grid; grid-template-columns:1fr 1.05fr; gap:56px; align-items:center;" class="hero-grid">
+    <div>
+      <div style="display:inline-flex; align-items:center; gap:10px; margin-bottom:30px;">
+        <svg width="13" height="13" viewBox="0 0 34 34" fill="none" aria-hidden="true"><path d="M3 33 V3 H31 V31 H11 V11 H23 V23 H17.5" stroke="#C26C33" stroke-width="3.6" stroke-linecap="square"/></svg>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.16em; text-transform:uppercase; color:#A8A395;">Personal knowledge canvas</span>
+      </div>
+      <h1 style="font-family:'Newsreader',serif; font-weight:500; font-size:64px; line-height:1.04; letter-spacing:-0.015em; margin:0 0 24px; color:#F2ECDD;">Everything you read, watch, and save, <span style="color:#C26C33; font-style:italic;">connected.</span></h1>
+      <p style="font-size:18.5px; line-height:1.6; color:#C7C2B2; max-width:30em; margin:0 0 36px;">Drop any URL — a video, an article, a tweet, a PDF — and Tacit pulls it in, summarizes it, and places it on an infinite canvas where it links itself to everything related. Then you just ask.</p>
+      <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+        <a href="/sign-up" style="font-family:'IBM Plex Mono',monospace; font-size:13.5px; letter-spacing:0.03em; color:#15171C; text-decoration:none; background:#C26C33; padding:14px 26px; border-radius:2px;">Start your canvas →</a>
+        <a href="#how" style="font-family:'IBM Plex Mono',monospace; font-size:13.5px; letter-spacing:0.03em; color:#ECE6D6; text-decoration:none; padding:14px 4px; border-bottom:1px solid rgba(236,230,214,0.3);">See how it works</a>
+      </div>
+      <div style="margin-top:40px; display:flex; gap:28px; align-items:center; font-family:'IBM Plex Mono',monospace; font-size:11.5px; letter-spacing:0.04em; color:#857F70; flex-wrap:wrap;">
+        <span>Runs in the browser</span><span style="color:#3a3d44;">/</span><span>Installs as a PWA</span><span style="color:#3a3d44;">/</span><span>iOS Shortcut</span>
+      </div>
+    </div>
+    <div style="position:relative;">
+      <div style="border:1px solid rgba(236,230,214,0.14); border-radius:4px; overflow:hidden; box-shadow:0 30px 70px rgba(0,0,0,0.5);">
+        <img src="/static/og-image.png" alt="Tacit knowledge canvas with connected cards" style="display:block; width:100%; height:auto;">
+      </div>
+    </div>
+  </header>
+
+  <!-- SOURCES STRIP -->
+  <section style="border-top:1px solid rgba(236,230,214,0.10); border-bottom:1px solid rgba(236,230,214,0.10); background:#13151A;">
+    <div style="max-width:1320px; margin:0 auto; padding:30px 40px; display:flex; align-items:center; gap:36px; flex-wrap:wrap;">
+      <span style="font-family:'IBM Plex Mono',monospace; font-size:11.5px; letter-spacing:0.12em; text-transform:uppercase; color:#857F70; white-space:nowrap;">Drops in from</span>
+      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#C7C2B2; border:1px solid rgba(236,230,214,0.16); border-radius:2px; padding:7px 14px;">YouTube</span>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#C7C2B2; border:1px solid rgba(236,230,214,0.16); border-radius:2px; padding:7px 14px;">TikTok</span>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#C7C2B2; border:1px solid rgba(236,230,214,0.16); border-radius:2px; padding:7px 14px;">Articles</span>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#C7C2B2; border:1px solid rgba(236,230,214,0.16); border-radius:2px; padding:7px 14px;">Tweets</span>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#C7C2B2; border:1px solid rgba(236,230,214,0.16); border-radius:2px; padding:7px 14px;">PDFs</span>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#C7C2B2; border:1px solid rgba(236,230,214,0.16); border-radius:2px; padding:7px 14px;">Any webpage</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section id="how" style="max-width:1320px; margin:0 auto; padding:96px 40px 40px;">
+    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:54px;">
+      <h2 style="font-family:'Newsreader',serif; font-weight:500; font-size:42px; line-height:1.05; letter-spacing:-0.01em; margin:0; color:#F2ECDD;">Three steps.</h2>
+      <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.14em; text-transform:uppercase; color:#857F70;">/ how it works</span>
+    </div>
+    <div class="steps-grid" style="display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:rgba(236,230,214,0.12); border:1px solid rgba(236,230,214,0.12); border-radius:4px; overflow:hidden;">
+      <div style="background:#15171C; padding:36px 32px 40px;">
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#C26C33; letter-spacing:0.08em; margin-bottom:26px;">01 / DROP</div>
+        <h3 style="font-family:'Newsreader',serif; font-weight:500; font-size:25px; line-height:1.15; margin:0 0 14px; color:#ECE6D6;">Paste a link</h3>
+        <p style="font-size:15.5px; line-height:1.6; color:#A8A395; margin:0;">Any URL goes in. Tacit fetches it, transcribes video and audio, writes a clean summary and tags, then sets it down as a card.</p>
+      </div>
+      <div style="background:#15171C; padding:36px 32px 40px;">
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#43707A; letter-spacing:0.08em; margin-bottom:26px;">02 / CONNECT</div>
+        <h3 style="font-family:'Newsreader',serif; font-weight:500; font-size:25px; line-height:1.15; margin:0 0 14px; color:#ECE6D6;">Watch it link itself</h3>
+        <p style="font-size:15.5px; line-height:1.6; color:#A8A395; margin:0;">Cards draw threads to each other by meaning, not by tags you maintain. The relationships between ideas become something you can see.</p>
+      </div>
+      <div style="background:#15171C; padding:36px 32px 40px;">
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#A8442C; letter-spacing:0.08em; margin-bottom:26px;">03 / ASK</div>
+        <h3 style="font-family:'Newsreader',serif; font-weight:500; font-size:25px; line-height:1.15; margin:0 0 14px; color:#ECE6D6;">Talk to all of it</h3>
+        <p style="font-size:15.5px; line-height:1.6; color:#A8A395; margin:0;">Ask a question and Tacit searches everything you've saved, answers in plain language, and shows you the exact source card.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section id="features" style="max-width:1320px; margin:0 auto; padding:96px 40px 40px;">
+    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:48px;">
+      <h2 style="font-family:'Newsreader',serif; font-weight:500; font-size:42px; line-height:1.05; letter-spacing:-0.01em; margin:0; color:#F2ECDD; max-width:14em;">A memory that does the organizing for you.</h2>
+      <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.14em; text-transform:uppercase; color:#857F70;">/ features</span>
+    </div>
+    <div class="features-grid" style="display:grid; grid-template-columns:repeat(3,1fr); gap:18px;">
+      <div style="grid-column:span 2; background:#13151A; border:1px solid rgba(236,230,214,0.12); border-radius:5px; padding:30px 30px 34px;">
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#C26C33; margin-bottom:18px;">CONVERSATIONAL RECALL</div>
+        <h3 style="font-family:'Newsreader',serif; font-weight:500; font-size:25px; line-height:1.2; margin:0 0 12px; color:#ECE6D6;">Chat with your whole canvas</h3>
+        <p style="font-size:15.5px; line-height:1.6; color:#A8A395; margin:0; max-width:40em;">Ask a question in plain language. Tacit searches across everything you've ever saved, answers, and links you straight back to the card it came from — with the receipts.</p>
+      </div>
+      <div style="background:#13151A; border:1px solid rgba(236,230,214,0.12); border-radius:5px; padding:30px;">
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#C26C33; margin-bottom:18px;">PEOPLE</div>
+        <h3 style="font-family:'Newsreader',serif; font-weight:500; font-size:22px; line-height:1.2; margin:0 0 12px; color:#ECE6D6;">Remembers who's who</h3>
+        <p style="font-size:15px; line-height:1.6; color:#A8A395; margin:0;">Mention a person and Tacit keeps track, surfacing every place they've come up.</p>
+      </div>
+      <div style="background:#13151A; border:1px solid rgba(236,230,214,0.12); border-radius:5px; padding:30px;">
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#C26C33; margin-bottom:18px;">SEARCH</div>
+        <h3 style="font-family:'Newsreader',serif; font-weight:500; font-size:22px; line-height:1.2; margin:0 0 12px; color:#ECE6D6;">Find it as you type</h3>
+        <p style="font-size:15px; line-height:1.6; color:#A8A395; margin:0;">Real-time search by tag, title, or full content. The canvas filters live.</p>
+      </div>
+      <div style="background:#13151A; border:1px solid rgba(236,230,214,0.12); border-radius:5px; padding:30px;">
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#C26C33; margin-bottom:18px;">NOTES</div>
+        <h3 style="font-family:'Newsreader',serif; font-weight:500; font-size:22px; line-height:1.2; margin:0 0 12px; color:#ECE6D6;">Your own cards too</h3>
+        <p style="font-size:15px; line-height:1.6; color:#A8A395; margin:0;">Write notes that live on the canvas and connect to everything else automatically.</p>
+      </div>
+      <div style="grid-column:span 2; background:#13151A; border:1px solid rgba(236,230,214,0.12); border-radius:5px; padding:30px 30px 34px; display:flex; gap:30px; align-items:flex-start; flex-wrap:wrap;">
+        <div style="flex:1; min-width:240px;">
+          <div style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.1em; color:#C26C33; margin-bottom:18px;">EVERYWHERE</div>
+          <h3 style="font-family:'Newsreader',serif; font-weight:500; font-size:25px; line-height:1.2; margin:0 0 12px; color:#ECE6D6;">Saves from wherever you are</h3>
+          <p style="font-size:15.5px; line-height:1.6; color:#A8A395; margin:0;">Runs in any browser, installs as a PWA on your iPhone, and ships an iOS Shortcut so you can share a URL from Safari straight onto your canvas.</p>
+        </div>
+        <div style="display:flex; gap:10px; align-self:center;">
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#C7C2B2; border:1px solid rgba(236,230,214,0.16); border-radius:2px; padding:8px 13px;">Browser</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#C7C2B2; border:1px solid rgba(236,230,214,0.16); border-radius:2px; padding:8px 13px;">PWA</span>
+          <span style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#C7C2B2; border:1px solid rgba(236,230,214,0.16); border-radius:2px; padding:8px 13px;">iOS Shortcut</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section id="get" style="max-width:1320px; margin:96px auto 0; padding:0 40px;">
+    <div style="position:relative; border:1px solid rgba(194,108,51,0.4); border-radius:6px; background:#1A2440; background-image:linear-gradient(rgba(236,230,214,0.045) 1px,transparent 1px),linear-gradient(90deg,rgba(236,230,214,0.045) 1px,transparent 1px); background-size:38px 38px; padding:72px 40px; text-align:center; overflow:hidden;" class="cta-section">
+      <div style="font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.16em; text-transform:uppercase; color:#C26C33; margin-bottom:22px;">trytacit.app</div>
+      <h2 class="cta-heading" style="font-family:'Newsreader',serif; font-weight:500; font-size:52px; line-height:1.06; letter-spacing:-0.015em; margin:0 auto 22px; color:#F2ECDD; max-width:16em;">Start dropping links. <span style="font-style:italic; color:#C26C33;">Let it connect the rest.</span></h2>
+      <p style="font-size:17px; line-height:1.6; color:#C7C2B2; max-width:34em; margin:0 auto 34px;">One canvas for everything you read, watch, and save: connected, searchable, and ready to talk back.</p>
+      <a href="/sign-up" style="font-family:'IBM Plex Mono',monospace; font-size:14px; letter-spacing:0.03em; color:#15171C; text-decoration:none; background:#C26C33; padding:16px 32px; border-radius:2px; display:inline-block;">Open your canvas →</a>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer style="max-width:1320px; margin:0 auto; padding:56px 40px 64px; display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-top:72px; border-top:1px solid rgba(236,230,214,0.10);">
+    <a href="/" style="display:flex; align-items:center; gap:11px; text-decoration:none;">
+      <svg width="24" height="24" viewBox="0 0 34 34" fill="none" aria-hidden="true"><path d="M3 33 V3 H31 V31 H11 V11 H23 V23 H17.5" stroke="#C26C33" stroke-width="2.8" stroke-linecap="square"/></svg>
+      <span style="font-family:'Newsreader',serif; font-weight:500; font-size:18px; letter-spacing:0.22em; color:#ECE6D6; line-height:1; padding-left:0.22em;">TACIT</span>
+    </a>
+    <div style="font-family:'IBM Plex Mono',monospace; font-size:11.5px; letter-spacing:0.04em; color:#857F70;">A personal knowledge canvas, with AI built in</div>
+    <a href="/sign-in" style="font-family:'IBM Plex Mono',monospace; font-size:12px; color:#A8A395; text-decoration:none;">Sign in →</a>
+  </footer>
+
+</div>
+</body>
+</html>

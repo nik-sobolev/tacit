@@ -2,7 +2,7 @@
   "name": "Tacit",
   "short_name": "Tacit",
   "description": "Your personal knowledge canvas",
-  "start_url": "/",
+  "start_url": "/app",
   "display": "standalone",
   "background_color": "#0f0f1a",
   "theme_color": "#0f0f1a",
