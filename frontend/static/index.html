@@ -149,14 +149,17 @@
 
                 <!-- Empty state -->
                 <div id="emptyState" class="empty-state">
-                    <div class="empty-icon">🧠</div>
-                    <h2>Your second brain</h2>
-                    <p>Capture, organize, and connect everything.</p>
+                    <svg width="40" height="40" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg" class="empty-icon" aria-hidden="true">
+                        <path d="M3 33 V3 H31 V31 H11 V11 H23 V23 H17.5" stroke="#C26C33" stroke-width="2.6" stroke-linecap="square"/>
+                    </svg>
+                    <h2>Your canvas is empty.</h2>
+                    <p>Paste any URL above to get started — a YouTube video, article, tweet, or any webpage. Tacit transcribes, summarizes, and connects it automatically.</p>
                     <div class="empty-actions">
-                        <button id="startTourBtn" class="empty-action-btn primary">✨ Take a Tour</button>
-                        <button id="skipTourBtn" class="empty-action-btn" onclick="document.getElementById('emptyState').style.display='none'">Skip</button>
+                        <button id="startTourBtn" class="empty-action-btn primary">Take a Tour</button>
+                        <button id="exampleUrlBtn" class="empty-action-btn ghost">Try an example →</button>
+                        <button id="skipTourBtn" class="empty-action-btn">Skip</button>
                     </div>
-                    <div class="empty-examples" style="margin-top:24px">
+                    <div class="empty-examples" style="margin-top:28px">
                         <span>YouTube</span>
                         <span>TikTok</span>
                         <span>Instagram</span>
@@ -232,7 +235,7 @@
 
     <!-- Markdown -->
     <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
-    <script src="/static/app.js?v=39"></script>
+    <script src="/static/app.js?v=40"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/static/sw.js').catch(() => {});

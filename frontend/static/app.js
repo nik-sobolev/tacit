@@ -1899,8 +1899,19 @@ function initUI() {
         document.getElementById('nodeDetailPanel').classList.remove('open');
     });
 
-    // Tour
+    // Empty state buttons
     document.getElementById('startTourBtn').addEventListener('click', showTour);
+    document.getElementById('skipTourBtn').addEventListener('click', () => {
+        document.getElementById('emptyState').style.display = 'none';
+    });
+    document.getElementById('exampleUrlBtn').addEventListener('click', () => {
+        document.getElementById('emptyState').style.display = 'none';
+        const urlInput = document.getElementById('urlInput');
+        urlInput.value = 'https://www.youtube.com/watch?v=aircAruvnKk';
+        document.getElementById('ingestBtn').click();
+    });
+
+    // Tour modal
     document.querySelector('.tour-close').addEventListener('click', closeTour);
     document.querySelector('.tour-btn-prev').addEventListener('click', () => {
         if (currentTourStep > 0) {
