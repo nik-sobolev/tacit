@@ -1963,24 +1963,24 @@ function toggleChat() {
 
 const TOUR_STEPS = [
     {
-        title: "Welcome to Tacit",
-        text: "Your second brain for capturing and connecting ideas.\n\nLet's get started with a quick tour."
+        title: "Drop any URL",
+        text: "Paste a YouTube video, TikTok, article, tweet, or any webpage into the bar at the top — then hit Add to Canvas.\n\nTacit fetches it, transcribes video and audio, writes a summary, and places it as a card. No copy-paste, no manual tagging."
     },
     {
-        title: "Add Content",
-        text: "Paste any URL in the bar at the top:\n• YouTube videos\n• TikTok clips\n• Articles & websites\n• PDFs & documents\n\nTacit will automatically transcribe, summarize, and tag everything."
+        title: "Cards connect automatically",
+        text: "Once you have a few cards, Tacit draws threads between them based on meaning — not tags you maintain.\n\nYou'll see lines on the canvas linking related ideas. The more you add, the richer the map gets."
     },
     {
-        title: "Chat to Connect",
-        text: "Click the 💬 button to ask questions about your content.\n\nTacit searches your canvas and gives you answers with sources.\n\nExample: \"What do I have about AI agents?\""
+        title: "Ask anything",
+        text: "The chat panel on the left is connected to everything on your canvas.\n\nAsk: \"What did Karpathy say about agents?\" or \"Summarize what I have about pricing.\"\n\nTacit searches across all your cards, answers in plain language, and shows the exact source."
     },
     {
-        title: "Organize & Explore",
-        text: "Click 'Tags' to see categories.\n\nUse 'Arrange' to organize visually.\n\nClick the ⌕ button to search your cards."
+        title: "Organize when you need to",
+        text: "Click Tags in the header to filter by category.\n\nClick ⌕ to search by title, tag, or content as you type.\n\nType 'arrange' in chat to sort your canvas into a clean grid — or 'chaos' if you're feeling it."
     },
     {
-        title: "You're Ready!",
-        text: "Add your first URL above and watch Tacit process it.\n\nStart building your second brain!"
+        title: "Paste your first URL",
+        text: "That's the whole thing. Paste a link, watch it land as a card, ask a question about it.\n\nMost people start with a YouTube video they've been meaning to watch, or an article they already saved somewhere else."
     }
 ];
 
