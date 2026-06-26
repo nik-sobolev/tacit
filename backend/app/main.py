@@ -188,11 +188,9 @@ async def sign_in(rest: str = ""):
 @app.get("/sign-up", response_class=HTMLResponse)
 @app.get("/sign-up/{rest:path}", response_class=HTMLResponse)
 async def sign_up(rest: str = ""):
-    """Serve sign-in page for all sign-up routes — Clerk handles sign-up internally"""
-    html_file = frontend_path / "sign-in.html"
-    if html_file.exists():
-        return html_file.read_text()
-    return HTMLResponse('<script>window.location="/app"</script>')
+    """Redirect all /sign-up routes to /sign-in — Clerk handles sign-up inline"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse('/sign-in', status_code=301)
 
 
 @app.get("/api/health")
@@ -232,11 +230,10 @@ async def startup_event():
     # Reset interrupted nodes back to pending (don't mark as error — they'll be retried)
     _recover_stuck_nodes()
 
-    # Re-index any processed nodes that are missing from ChromaDB
-    _reindex_missing_nodes()
-
-    # Process any pending nodes in background (handles restart-interrupted nodes)
+    # Re-index nodes missing from ChromaDB and process pending — both in background
+    # to avoid OOM at startup (ChromaDB downloads 79MB ONNX model on first use)
     import threading
+    threading.Thread(target=_reindex_missing_nodes, daemon=True).start()
     threading.Thread(target=_process_pending_nodes, daemon=True).start()
 
 
@@ -282,6 +279,7 @@ def _migrate_add_user_id_to_contexts():
         db = get_database()
         with db.engine.connect() as conn:
             for table, col in [
+                ("nodes", "user_id VARCHAR"),
                 ("contexts", "user_id VARCHAR"),
                 ("documents", "user_id VARCHAR"),
             ]:

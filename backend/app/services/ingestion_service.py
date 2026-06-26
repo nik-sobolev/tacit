@@ -24,7 +24,7 @@ def detect_url_type(url: str) -> str:
 
     if host in ("youtube.com", "youtu.be") or "youtube.com" in host:
         return "youtube"
-    if host in ("tiktok.com",) or "tiktok.com" in host:
+    if host in ("tiktok.com", "vm.tiktok.com", "vt.tiktok.com") or "tiktok.com" in host:
         return "tiktok"
     if host in ("instagram.com",) or "instagram.com" in host:
         return "instagram"
@@ -63,6 +63,7 @@ class IngestionService:
                 "metadata": {"error": str(e)},
             }
 
+        extraction_failed = data.get("metadata", {}).get("extraction_failed", False)
         node_id = str(uuid.uuid4())
         node = NodeDB(
             id=node_id,
@@ -74,7 +75,8 @@ class IngestionService:
             thumbnail_url=data.get("thumbnail_url"),
             canvas_x=canvas_x,
             canvas_y=canvas_y,
-            status="processing",
+            status="error" if extraction_failed else "processing",
+            error_message="TikTok extraction failed — video may be private, deleted, or region-blocked" if extraction_failed else None,
             tags=[],
             node_meta=data.get("metadata", {}),
             created_at=datetime.utcnow(),
@@ -185,36 +187,31 @@ class IngestionService:
     # ==================== SOCIAL VIDEO (TikTok, Instagram) ====================
 
     def _extract_social_video(self, url: str) -> Dict[str, Any]:
-        """Download video via yt-dlp and transcribe with faster-whisper."""
+        """Download video via yt-dlp + whisper, fall back to oEmbed if yt-dlp fails."""
+        # Attempt 1: yt-dlp audio download + faster-whisper transcription
         try:
             import yt_dlp
-        except ImportError:
-            raise RuntimeError("yt-dlp not installed. Run: pip install yt-dlp")
+            metadata = self._get_video_metadata(url)
+            title = metadata.get("title", "")
+            thumbnail_url = metadata.get("thumbnail")
+            transcript_text = ""
 
-        metadata = self._get_video_metadata(url)
-        title = metadata.get("title", url)
-        thumbnail_url = metadata.get("thumbnail")
-
-        # Download audio only
-        transcript_text = ""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            audio_path = os.path.join(tmpdir, "audio.mp3")
-            ydl_opts = {
-                "format": "bestaudio/best",
-                "outtmpl": audio_path,
-                "postprocessors": [{
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "128",
-                }],
-                "quiet": True,
-                "no_warnings": True,
-            }
-            try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                audio_path = os.path.join(tmpdir, "audio.mp3")
+                ydl_opts = {
+                    "format": "bestaudio/best",
+                    "outtmpl": audio_path,
+                    "postprocessors": [{
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "mp3",
+                        "preferredquality": "128",
+                    }],
+                    "quiet": True,
+                    "no_warnings": True,
+                }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
 
-                # Find the actual output file (yt-dlp may add extension)
                 actual_path = audio_path
                 for fname in os.listdir(tmpdir):
                     if fname.startswith("audio"):
@@ -223,28 +220,72 @@ class IngestionService:
 
                 if os.path.exists(actual_path):
                     transcript_text = self._transcribe(actual_path)
+
+            if transcript_text:
+                return {
+                    "title": title or url,
+                    "content": transcript_text,
+                    "thumbnail_url": thumbnail_url,
+                    "metadata": {
+                        "duration": metadata.get("duration"),
+                        "uploader": metadata.get("uploader"),
+                        "upload_date": metadata.get("upload_date"),
+                        "description": (metadata.get("description") or "")[:500],
+                    },
+                }
+            logger.warning("social_video_empty_transcript", url=url)
+        except Exception as e:
+            logger.warning("social_video_yt_dlp_failed", url=url, error=str(e))
+
+        # Attempt 2: TikTok oEmbed (no auth, returns title + author + thumbnail)
+        parsed = urlparse(url)
+        host = parsed.netloc.lower().replace("www.", "")
+        if "tiktok.com" in host:
+            try:
+                return self._extract_tiktok_oembed(url)
             except Exception as e:
-                logger.error("social_video_download_error", url=url, error=str(e))
+                logger.warning("tiktok_oembed_failed", url=url, error=str(e))
+
+        # Both paths failed — signal complete failure via sentinel title
+        return {"title": url, "content": "", "thumbnail_url": None, "metadata": {"extraction_failed": True}}
+
+    def _extract_tiktok_oembed(self, url: str) -> Dict[str, Any]:
+        """Fetch TikTok title + author + thumbnail via the public oEmbed endpoint."""
+        oembed_url = f"https://www.tiktok.com/oembed?url={url}"
+        with httpx.Client(timeout=10, follow_redirects=True) as client:
+            resp = client.get(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            data = resp.json()
+
+        author = data.get("author_name", "")
+        title = data.get("title") or (f"TikTok by {author}" if author else url)
+        thumbnail_url = data.get("thumbnail_url")
+
+        # oEmbed gives no transcript — use title + author as searchable content
+        content = f"{title}\n\nBy {author}" if author else title
 
         return {
-            "title": title,
-            "content": transcript_text,
+            "title": title[:400],
+            "content": content,
             "thumbnail_url": thumbnail_url,
             "metadata": {
-                "duration": metadata.get("duration"),
-                "uploader": metadata.get("uploader"),
-                "upload_date": metadata.get("upload_date"),
-                "description": (metadata.get("description") or "")[:500],
+                "author": author,
+                "provider": "tiktok_oembed",
             },
         }
 
     def _transcribe(self, audio_path: str) -> str:
-        """Transcribe audio using faster-whisper (lazy-loads base model)."""
+        """Transcribe audio using faster-whisper (lazy-loads tiny model). Disabled via DISABLE_WHISPER=true."""
+        import os
+        if os.getenv("DISABLE_WHISPER", "").lower() in ("1", "true", "yes"):
+            logger.info("whisper_disabled_by_env")
+            return ""
         try:
             if self._whisper_model is None:
                 from faster_whisper import WhisperModel
-                logger.info("loading_whisper_model", model="base")
-                self._whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+                model_size = os.getenv("WHISPER_MODEL", "tiny")
+                logger.info("loading_whisper_model", model=model_size)
+                self._whisper_model = WhisperModel(model_size, device="cpu", compute_type="int8")
 
             segments, _ = self._whisper_model.transcribe(audio_path, beam_size=5)
             return " ".join(segment.text.strip() for segment in segments)
