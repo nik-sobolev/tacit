@@ -161,7 +161,12 @@
         }
         if (!window.Clerk) return;
 
-        await window.Clerk.load({ appearance: tacitAppearance });
+        await window.Clerk.load({
+            appearance: tacitAppearance,
+            signInUrl: '/sign-in',
+            signUpUrl: '/sign-in',
+            afterSignOutUrl: '/sign-in',
+        });
 
         if (window.Clerk.user) {
             window.location.href = '/app';

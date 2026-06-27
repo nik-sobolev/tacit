@@ -48,6 +48,9 @@ async function initAuth() {
         }
         if (!window.Clerk) throw new Error('Clerk JS failed to load from clerk.trytacit.app');
         await window.Clerk.load({
+            signInUrl: '/sign-in',
+            signUpUrl: '/sign-in',
+            afterSignOutUrl: '/sign-in',
             appearance: {
                 variables: {
                     colorPrimary: '#C26C33',
