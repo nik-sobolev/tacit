@@ -1767,6 +1767,15 @@ async function sendMessage() {
                     graphData.edges = graphData.edges.filter(e => e.id !== action.edge_id);
                     edgesChanged++;
                 }
+                if (action.type === 'node_deleted') {
+                    const card = nodeElements[action.node_id];
+                    if (card) card.remove();
+                    delete nodeElements[action.node_id];
+                    graphData.nodes = graphData.nodes.filter(n => n.id !== action.node_id);
+                    graphData.edges = graphData.edges.filter(e => e.source_id !== action.node_id && e.target_id !== action.node_id);
+                    edgesChanged++;
+                    updateEmptyState(graphData.nodes.length);
+                }
                 if (action.type === 'arrange_canvas') {
                     autoArrangeByCategory();
                 }

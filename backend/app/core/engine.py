@@ -898,6 +898,28 @@ The user is looking for specific information from their knowledge base.
                 },
                 "required": ["source_id", "target_id"]
             }
+        },
+        {
+            "name": "delete_canvas_node",
+            "description": (
+                "Permanently delete a node from the canvas and remove it from memory. "
+                "Use when the user explicitly asks to delete or remove a specific node, or to clean up duplicates. "
+                "Always tell the user which node(s) you are about to delete before calling this tool."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "node_id": {
+                        "type": "string",
+                        "description": "The ID of the node to delete (from the canvas inventory)"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Why this node is being deleted (e.g. 'duplicate', 'user requested removal')"
+                    }
+                },
+                "required": ["node_id"]
+            }
         }
     ]
 
@@ -1098,6 +1120,27 @@ The user is looking for specific information from their knowledge base.
                     "source_title": source_title,
                     "target_title": target_title,
                 }
+            finally:
+                db_session.close()
+
+        if name == "delete_canvas_node":
+            node_id = inputs.get("node_id", "")
+
+            db_session = self.db.get_session()
+            try:
+                node = db_session.query(NodeDB).filter_by(id=node_id, user_id=self._current_user_id).first()
+                if not node:
+                    return {"error": "Node not found or not owned by user"}
+
+                title = node.title or "Untitled"
+                self.graph_service.delete_node_edges(node_id)
+                self.vector_service.delete_node(node_id)
+                db_session.delete(node)
+                db_session.commit()
+
+                actions.append({"type": "node_deleted", "node_id": node_id})
+                logger.info("canvas_node_deleted", node_id=node_id, title=title)
+                return {"success": True, "deleted": title}
             finally:
                 db_session.close()
 
