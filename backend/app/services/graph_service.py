@@ -62,6 +62,8 @@ class GraphService:
                 meta["category"] = agent_result["category"]
             if agent_result.get("purpose"):
                 meta["purpose"] = agent_result["purpose"]
+            if agent_result.get("key_points"):
+                meta["key_points"] = agent_result["key_points"]
             content_out = (node.content or "")[:3000]
 
             # Update via SQLAlchemy so it works with both SQLite and Postgres
@@ -148,6 +150,12 @@ class GraphService:
         if existing_categories:
             categories_hint = f"\n\nEXISTING CATEGORIES IN USE: {', '.join(existing_categories)}\nPrefer reusing these categories when the content fits. Create a new category only if none of the existing ones apply."
 
+        is_video = node.type in ("youtube", "tiktok", "instagram")
+        key_points_field = """
+  "key_points": ["specific insight 1", "specific insight 2", "...up to 10 bullets"],""" if is_video else ""
+        key_points_rule = """
+- key_points: 6-10 bullet strings of the most important specific insights — include names, companies, numbers, specific claims. Lead with the sharpest insight. No filler.""" if is_video else ""
+
         prompt = f"""You are analyzing a piece of content being added to a personal knowledge graph.
 
 CONTENT TYPE: {node.type}
@@ -158,9 +166,9 @@ CONTENT:
 {existing_section}{categories_hint}
 
 Return a JSON object with these exact fields:
-{{
+{{{key_points_field}
   "title": "concise title (max 80 chars)",
-  "summary": "2-3 sentence summary of the key ideas",
+  "summary": "2-3 sentence summary identifying the speaker/source and key themes",
   "category": "short category name (2-3 words max, e.g. AI Strategy, Trading, Developer Tools)",
   "purpose": "one sentence: why this content matters and what role it serves in a knowledge base",
   "tags": ["tag1", "tag2", "tag3"],
@@ -172,7 +180,7 @@ Return a JSON object with these exact fields:
 
 Rules:
 - title: improve the existing title if needed, keep it concise
-- summary: focus on the most important ideas, be specific
+- summary: focus on the most important ideas, be specific{key_points_rule}
 - category: a short thematic label grouping this with similar content. Reuse existing categories when possible.
 - purpose: explain what value this content adds — is it reference material, a learning resource, a strategic insight, a tool, inspiration, etc.?
 - tags: 3-6 lowercase single-word or hyphenated tags

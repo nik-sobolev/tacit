@@ -927,6 +927,46 @@ async function openDetail(nodeId) {
         } catch (e) {}
 
         const tagsHTML = (node.tags || []).map(t => `<span class="card-tag">${escapeHtml(t)}</span>`).join('');
+        const meta = node.metadata || {};
+        const isVideo = ['youtube', 'tiktok', 'instagram'].includes(node.type);
+        const keyPoints = meta.key_points || [];
+        const segments = meta.transcript_segments || [];
+        const videoId = meta.video_id || null;
+
+        // Build key points HTML
+        const keyPointsHTML = keyPoints.length > 0 ? `
+            <div class="detail-section">
+                <h4>Key Points</h4>
+                <ul class="detail-key-points">
+                    ${keyPoints.map(p => `<li>${escapeHtml(p)}</li>`).join('')}
+                </ul>
+            </div>` : '';
+
+        // Build transcript HTML — timestamped segments or plain text fallback
+        let transcriptHTML = '';
+        if (segments.length > 0) {
+            const segmentsHTML = segments.map(seg => {
+                const secs = Math.floor(seg.start);
+                const mins = Math.floor(secs / 60);
+                const s = secs % 60;
+                const label = `${mins}:${String(s).padStart(2, '0')}`;
+                const tsLink = videoId
+                    ? `<a class="ts-link" href="https://www.youtube.com/watch?v=${videoId}&t=${secs}s" target="_blank" rel="noopener">${label}</a>`
+                    : `<span class="ts-label">${label}</span>`;
+                return `<div class="ts-segment">${tsLink}<span class="ts-text">${escapeHtml(seg.text)}</span></div>`;
+            }).join('');
+            transcriptHTML = `<div class="detail-section"><h4>Transcript</h4><div class="detail-transcript-segments">${segmentsHTML}</div></div>`;
+        } else if (node.content) {
+            transcriptHTML = `<div class="detail-section"><h4>${isVideo ? 'Transcript' : 'Full Content'}</h4><div class="detail-transcript">${escapeHtml(node.content)}</div></div>`;
+        }
+
+        // Action bar for video nodes
+        const actionBar = isVideo ? `
+            <div class="detail-actions">
+                <button class="detail-action-btn" onclick="copyTranscriptText(${JSON.stringify(node.id)})" title="Copy to clipboard">Copy</button>
+                <button class="detail-action-btn" onclick="downloadTranscriptMd(${JSON.stringify(node.id)})" title="Open as markdown page">.md</button>
+                <button class="detail-action-btn" onclick="shareTranscript(${JSON.stringify(node.id)})" title="Copy transcript URL">Share</button>
+            </div>` : '';
 
         content.innerHTML = `
             ${node.thumbnail_url ? `<img class="${node.type === 'image' ? 'detail-thumb-image' : 'detail-thumb'}" src="${escapeHtml(node.thumbnail_url)}" alt="" onerror="this.style.display='none'" />` : ''}
@@ -934,18 +974,96 @@ async function openDetail(nodeId) {
                 <h2 class="detail-title">${escapeHtml(node.title || 'Untitled')}</h2>
                 ${node.url ? `<a class="detail-url" href="${escapeHtml(node.url)}" target="_blank" rel="noopener">${escapeHtml(node.url)}</a>` : ''}
             </div>
-            ${node.summary ? `<div class="detail-section"><h4>Summary</h4><p class="detail-summary">${escapeHtml(node.summary)}</p></div>` : ''}
+            ${node.summary ? `<div class="detail-section"><p class="detail-summary">${escapeHtml(node.summary)}</p></div>` : ''}
+            ${keyPointsHTML}
             ${tagsHTML ? `<div class="detail-section"><div class="card-tags">${tagsHTML}</div></div>` : ''}
+            ${actionBar}
             ${relatedHTML}
-            ${node.content ? `
-                <div class="detail-section">
-                    <h4>Full Content</h4>
-                    <div class="detail-transcript">${escapeHtml(node.content)}</div>
-                </div>` : ''}
+            ${transcriptHTML}
         `;
+
+        // Store node data on panel for action buttons
+        panel.dataset.nodeId = node.id;
+        panel._nodeData = node;
     } catch (e) {
         content.innerHTML = '<p class="detail-error">Failed to load node details.</p>';
     }
+}
+
+function _getDetailNode(nodeId) {
+    const panel = document.getElementById('detail-panel');
+    return panel && panel._nodeData && panel._nodeData.id === nodeId ? panel._nodeData : null;
+}
+
+function _buildTranscriptText(node) {
+    const meta = node.metadata || {};
+    const keyPoints = meta.key_points || [];
+    const segments = meta.transcript_segments || [];
+    let out = (node.title || 'Untitled') + '\n';
+    if (node.url) out += node.url + '\n';
+    out += '\n';
+    if (node.summary) out += node.summary + '\n\n';
+    if (keyPoints.length) {
+        out += 'Key Points:\n' + keyPoints.map(p => '• ' + p).join('\n') + '\n\n';
+    }
+    if (segments.length) {
+        out += 'Transcript:\n' + segments.map(seg => {
+            const secs = Math.floor(seg.start);
+            const mins = Math.floor(secs / 60);
+            const s = secs % 60;
+            return `[${mins}:${String(s).padStart(2, '0')}] ${seg.text}`;
+        }).join('\n');
+    }
+    return out.trim();
+}
+
+function _buildTranscriptMd(node) {
+    const meta = node.metadata || {};
+    const keyPoints = meta.key_points || [];
+    const segments = meta.transcript_segments || [];
+    const videoId = meta.video_id || null;
+    let md = `# ${node.title || 'Untitled'}\n`;
+    if (node.url) md += `${node.url}\n`;
+    md += '\n';
+    if (node.summary) md += `## Summary\n\n${node.summary}\n\n`;
+    if (keyPoints.length) {
+        md += keyPoints.map(p => `- ${p}`).join('\n') + '\n\n';
+    }
+    if (segments.length) {
+        md += '## Transcript\n\n';
+        md += segments.map(seg => {
+            const secs = Math.floor(seg.start);
+            const mins = Math.floor(secs / 60);
+            const s = secs % 60;
+            const label = `${mins}:${String(s).padStart(2, '0')}`;
+            const link = videoId
+                ? `[${label}](https://www.youtube.com/watch?v=${videoId}&t=${secs}s)`
+                : `**${label}**`;
+            return `${link} ${seg.text}`;
+        }).join('\n\n');
+    }
+    return md.trim();
+}
+
+function copyTranscriptText(nodeId) {
+    const node = _getDetailNode(nodeId);
+    if (!node) return;
+    navigator.clipboard.writeText(_buildTranscriptText(node)).then(() => {
+        const btn = document.querySelector('.detail-action-btn[title="Copy to clipboard"]');
+        if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 2000); }
+    });
+}
+
+function downloadTranscriptMd(nodeId) {
+    window.open(`/t/${nodeId}`, '_blank');
+}
+
+function shareTranscript(nodeId) {
+    const transcriptUrl = `${window.location.origin}/t/${nodeId}`;
+    navigator.clipboard.writeText(transcriptUrl).then(() => {
+        const btn = document.querySelector('.detail-action-btn[title="Share"]');
+        if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Share'; }, 2000); }
+    });
 }
 
 async function deleteNode(nodeId, cardEl) {

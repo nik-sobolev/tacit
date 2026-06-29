@@ -100,12 +100,17 @@ class IngestionService:
         if not video_id:
             raise ValueError(f"Could not parse YouTube video ID from: {url}")
 
-        # Get transcript via youtube-transcript-api
+        # Get transcript via youtube-transcript-api (preserves timestamps)
         transcript_text = ""
+        transcript_segments = []
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
             transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
             transcript_text = " ".join(entry["text"] for entry in transcript_list)
+            transcript_segments = [
+                {"start": round(entry["start"], 1), "text": entry["text"]}
+                for entry in transcript_list
+            ]
         except Exception as e:
             logger.warning("youtube_transcript_api_failed", video_id=video_id, error=str(e))
             # Fall back to yt-dlp subtitle extraction
@@ -116,18 +121,22 @@ class IngestionService:
         title = metadata.get("title", f"YouTube Video {video_id}")
         thumbnail_url = metadata.get("thumbnail") or f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg"
 
+        result_meta = {
+            "video_id": video_id,
+            "duration": metadata.get("duration"),
+            "uploader": metadata.get("uploader"),
+            "upload_date": metadata.get("upload_date"),
+            "view_count": metadata.get("view_count"),
+            "description": (metadata.get("description") or "")[:500],
+        }
+        if transcript_segments:
+            result_meta["transcript_segments"] = transcript_segments
+
         return {
             "title": title,
             "content": transcript_text,
             "thumbnail_url": thumbnail_url,
-            "metadata": {
-                "video_id": video_id,
-                "duration": metadata.get("duration"),
-                "uploader": metadata.get("uploader"),
-                "upload_date": metadata.get("upload_date"),
-                "view_count": metadata.get("view_count"),
-                "description": (metadata.get("description") or "")[:500],
-            },
+            "metadata": result_meta,
         }
 
     def _parse_youtube_id(self, url: str) -> Optional[str]:
@@ -219,19 +228,22 @@ class IngestionService:
                         break
 
                 if os.path.exists(actual_path):
-                    transcript_text = self._transcribe(actual_path)
+                    transcript_text, transcript_segments = self._transcribe(actual_path)
 
             if transcript_text:
+                meta = {
+                    "duration": metadata.get("duration"),
+                    "uploader": metadata.get("uploader"),
+                    "upload_date": metadata.get("upload_date"),
+                    "description": (metadata.get("description") or "")[:500],
+                }
+                if transcript_segments:
+                    meta["transcript_segments"] = transcript_segments
                 return {
                     "title": title or url,
                     "content": transcript_text,
                     "thumbnail_url": thumbnail_url,
-                    "metadata": {
-                        "duration": metadata.get("duration"),
-                        "uploader": metadata.get("uploader"),
-                        "upload_date": metadata.get("upload_date"),
-                        "description": (metadata.get("description") or "")[:500],
-                    },
+                    "metadata": meta,
                 }
             logger.warning("social_video_empty_transcript", url=url)
         except Exception as e:
@@ -274,12 +286,12 @@ class IngestionService:
             },
         }
 
-    def _transcribe(self, audio_path: str) -> str:
-        """Transcribe audio using faster-whisper (lazy-loads tiny model). Disabled via DISABLE_WHISPER=true."""
+    def _transcribe(self, audio_path: str):
+        """Transcribe audio using faster-whisper. Returns (text, segments_list). Disabled via DISABLE_WHISPER=true."""
         import os
         if os.getenv("DISABLE_WHISPER", "").lower() in ("1", "true", "yes"):
             logger.info("whisper_disabled_by_env")
-            return ""
+            return "", []
         try:
             if self._whisper_model is None:
                 from faster_whisper import WhisperModel
@@ -287,11 +299,13 @@ class IngestionService:
                 logger.info("loading_whisper_model", model=model_size)
                 self._whisper_model = WhisperModel(model_size, device="cpu", compute_type="int8")
 
-            segments, _ = self._whisper_model.transcribe(audio_path, beam_size=5)
-            return " ".join(segment.text.strip() for segment in segments)
+            raw_segments, _ = self._whisper_model.transcribe(audio_path, beam_size=5)
+            segments_list = [{"start": round(seg.start, 1), "text": seg.text.strip()} for seg in raw_segments]
+            text = " ".join(s["text"] for s in segments_list)
+            return text, segments_list
         except Exception as e:
             logger.error("whisper_transcription_error", error=str(e))
-            return ""
+            return "", []
 
     def _get_video_metadata(self, url: str) -> Dict[str, Any]:
         """Get video metadata via yt-dlp without downloading."""

@@ -156,6 +156,85 @@ async def share_canvas(token: str):
     return HTMLResponse(html_file.read_text())
 
 
+@app.get("/t/{node_id}")
+async def transcript_md(node_id: str):
+    """Public transcript endpoint — returns raw markdown for a video node (like usetranscribe.io ?format=md).
+    Keyed by UUID node_id (unguessable). No auth required so agents and browsers can fetch directly."""
+    from fastapi.responses import PlainTextResponse
+    from .db.database import get_database, NodeDB
+
+    db = get_database()
+
+    def _get(session):
+        node = session.query(NodeDB).filter_by(id=node_id).first()
+        if not node:
+            return None
+        meta = node.node_meta or {}
+        return {
+            "title": node.title,
+            "url": node.url,
+            "summary": node.summary,
+            "content": node.content,
+            "meta": meta,
+        }
+
+    try:
+        data = db.run_with_retry(_get)
+    except Exception as e:
+        logger.error("transcript_md_db_error", node_id=node_id, error=str(e))
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse("# Error\n\nTemporary error — please try again.", status_code=503)
+
+    if not data:
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse("# Not Found\n\nThis transcript does not exist.", status_code=404)
+
+    meta = data["meta"]
+    key_points = meta.get("key_points") or []
+    segments = meta.get("transcript_segments") or []
+    video_id = meta.get("video_id") or ""
+
+    lines = []
+    lines.append(f"# {data['title'] or 'Untitled'}")
+    if data["url"]:
+        lines.append(f"**Source:** {data['url']}")
+    lines.append("")
+
+    if data["summary"]:
+        lines.append("## Summary")
+        lines.append("")
+        lines.append(data["summary"])
+        lines.append("")
+
+    if key_points:
+        for point in key_points:
+            lines.append(f"- {point}")
+        lines.append("")
+
+    if segments:
+        lines.append("## Transcript")
+        lines.append("")
+        for seg in segments:
+            secs = int(seg.get("start", 0))
+            mins = secs // 60
+            s = secs % 60
+            label = f"{mins}:{str(s).zfill(2)}"
+            if video_id:
+                ts = f"[[{label}]](https://www.youtube.com/watch?v={video_id}&t={secs}s)"
+            else:
+                ts = f"**[{label}]**"
+            text = seg.get("text", "").strip()
+            lines.append(f"{ts} {text}")
+            lines.append("")
+    elif data["content"]:
+        lines.append("## Transcript")
+        lines.append("")
+        lines.append(data["content"])
+
+    md = "\n".join(lines).strip() + "\n"
+    return PlainTextResponse(md, media_type="text/plain; charset=utf-8")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Serve the Tacit landing page"""
