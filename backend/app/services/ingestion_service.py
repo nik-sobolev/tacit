@@ -105,16 +105,24 @@ class IngestionService:
         transcript_segments = []
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-            transcript_text = " ".join(entry["text"] for entry in transcript_list)
-            transcript_segments = [
-                {"start": round(entry["start"], 1), "text": entry["text"]}
-                for entry in transcript_list
-            ]
+            raw = YouTubeTranscriptApi.get_transcript(video_id, languages=["en", "en-US", "en-GB"])
+            entries = []
+            for entry in raw:
+                if isinstance(entry, dict):
+                    entries.append({"text": entry.get("text", ""), "start": entry.get("start", 0)})
+                else:
+                    entries.append({"text": getattr(entry, "text", ""), "start": getattr(entry, "start", 0)})
+            transcript_text = " ".join(e["text"] for e in entries)
+            transcript_segments = [{"start": round(e["start"], 1), "text": e["text"]} for e in entries]
+            logger.info("youtube_transcript_api_ok", video_id=video_id, segments=len(entries))
         except Exception as e:
             logger.warning("youtube_transcript_api_failed", video_id=video_id, error=str(e))
-            # Fall back to yt-dlp subtitle extraction
+
+        # Fallback: yt-dlp subtitle extraction
+        if not transcript_text:
             transcript_text = self._get_yt_dlp_subtitles(url) or ""
+            if transcript_text:
+                logger.info("yt_dlp_subtitles_ok", video_id=video_id)
 
         # Final fallback: download audio and transcribe via cloud Whisper API
         if not transcript_text:
