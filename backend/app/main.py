@@ -286,6 +286,61 @@ async def health_check():
     }
 
 
+@app.get("/api/debug/youtube/{video_id}")
+async def debug_youtube(video_id: str):
+    """Diagnostic: test each transcript method and return results."""
+    import os, tempfile, traceback
+    results = {}
+
+    # Test 1: youtube-transcript-api
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+        raw = YouTubeTranscriptApi.get_transcript(video_id, languages=["en", "en-US", "en-GB"])
+        entries = list(raw)
+        results["transcript_api"] = {"ok": True, "segments": len(entries), "preview": str(entries[0]) if entries else ""}
+    except Exception as e:
+        results["transcript_api"] = {"ok": False, "error": str(e)}
+
+    # Test 2: yt-dlp metadata (with android client)
+    try:
+        import yt_dlp
+        ydl_opts = {
+            "quiet": True, "no_warnings": True,
+            "extractor_args": {"youtube": {"player_client": ["android", "tv_embedded"]}},
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            results["yt_dlp_metadata"] = {"ok": True, "title": info.get("title"), "duration": info.get("duration")}
+    except Exception as e:
+        results["yt_dlp_metadata"] = {"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]}
+
+    # Test 3: yt-dlp audio download (with android client)
+    try:
+        import yt_dlp
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ydl_opts = {
+                "format": "worstaudio/worst",
+                "outtmpl": os.path.join(tmpdir, "audio"),
+                "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "32"}],
+                "postprocessor_args": {"FFmpegExtractAudio": ["-ac", "1"]},
+                "quiet": True, "no_warnings": True,
+                "extractor_args": {"youtube": {"player_client": ["android", "tv_embedded"]}},
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
+            files = os.listdir(tmpdir)
+            sizes = {f: os.path.getsize(os.path.join(tmpdir, f)) for f in files}
+            results["yt_dlp_audio"] = {"ok": True, "files": sizes}
+    except Exception as e:
+        results["yt_dlp_audio"] = {"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]}
+
+    # Test 4: Groq key present
+    results["groq_key"] = {"present": bool(os.getenv("GROQ_API_KEY"))}
+    results["ffmpeg"] = {"present": os.system("ffmpeg -version > /dev/null 2>&1") == 0}
+
+    return results
+
+
 @app.on_event("startup")
 async def startup_event():
     """Run on application startup"""
