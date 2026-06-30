@@ -626,17 +626,30 @@ async function submitUrl() {
     const normalizedInput = normalizeUrl(url);
     const existingNode = graphData.nodes.find(n => n.url && normalizeUrl(n.url) === normalizedInput);
     if (existingNode) {
-        showToast('Already on your canvas', 'error');
-        scrollToNode(existingNode);
-        const existingCard = nodeElements[existingNode.id];
-        if (existingCard) {
-            existingCard.classList.add('card-highlight-pulse');
-            setTimeout(() => existingCard.classList.remove('card-highlight-pulse'), 1500);
+        const isFailed = existingNode.status === 'error' || (existingNode.title && existingNode.title.includes('Content Unavailable'));
+        if (!isFailed) {
+            showToast('Already on your canvas', 'error');
+            scrollToNode(existingNode);
+            const existingCard = nodeElements[existingNode.id];
+            if (existingCard) {
+                existingCard.classList.add('card-highlight-pulse');
+                setTimeout(() => existingCard.classList.remove('card-highlight-pulse'), 1500);
+            }
+            input.value = '';
+            input.disabled = false;
+            document.getElementById('ingestBtn').disabled = false;
+            return;
         }
-        input.value = '';
-        input.disabled = false;
-        document.getElementById('ingestBtn').disabled = false;
-        return;
+        // Failed node — silently remove from canvas so it gets re-processed
+        try {
+            await apiFetch(`${API_BASE}/nodes/${existingNode.id}`, { method: 'DELETE' });
+            const card = nodeElements[existingNode.id];
+            if (card) card.remove();
+            delete nodeElements[existingNode.id];
+            graphData.nodes = graphData.nodes.filter(n => n.id !== existingNode.id);
+            graphData.edges = graphData.edges.filter(e => e.source_id !== existingNode.id && e.target_id !== existingNode.id);
+            drawEdges(graphData.edges);
+        } catch (_) {}
     }
 
     // Place new card near center of current viewport (desktop) or stacked (mobile)

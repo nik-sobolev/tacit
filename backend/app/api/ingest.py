@@ -38,15 +38,19 @@ async def ingest_url(request: Request, body: IngestRequest, current_user: dict =
     with db.session_scope() as dup_session:
         existing = dup_session.query(NodeDB).filter_by(url=body.url, user_id=user_id).first()
         if existing:
-            return {
-                "node_id": existing.id,
-                "type": existing.type,
-                "title": existing.title,
-                "status": existing.status,
-                "canvas_x": existing.canvas_x,
-                "canvas_y": existing.canvas_y,
-                "duplicate": True,
-            }
+            is_failed = existing.status == "error" or (existing.title and "Content Unavailable" in existing.title)
+            if not is_failed:
+                return {
+                    "node_id": existing.id,
+                    "type": existing.type,
+                    "title": existing.title,
+                    "status": existing.status,
+                    "canvas_x": existing.canvas_x,
+                    "canvas_y": existing.canvas_y,
+                    "duplicate": True,
+                }
+            # Failed node — delete so it gets re-processed
+            dup_session.delete(existing)
 
     ingestion_service = request.app.state.ingestion_service
     graph_service = request.app.state.graph_service
