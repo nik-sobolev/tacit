@@ -116,6 +116,11 @@ class IngestionService:
             # Fall back to yt-dlp subtitle extraction
             transcript_text = self._get_yt_dlp_subtitles(url) or ""
 
+        # Final fallback: download audio and transcribe via cloud Whisper API
+        if not transcript_text:
+            logger.info("youtube_falling_back_to_audio_transcription", video_id=video_id)
+            transcript_text, transcript_segments = self._download_and_transcribe_audio(url)
+
         # Get metadata via yt-dlp (no download)
         metadata = self._get_video_metadata(url)
         title = metadata.get("title", f"YouTube Video {video_id}")
@@ -229,6 +234,8 @@ class IngestionService:
 
                 if os.path.exists(actual_path):
                     transcript_text, transcript_segments = self._transcribe(actual_path)
+                    if not transcript_text:
+                        transcript_text, transcript_segments = self._transcribe_cloud(actual_path)
 
             if transcript_text:
                 meta = {
@@ -285,6 +292,78 @@ class IngestionService:
                 "provider": "tiktok_oembed",
             },
         }
+
+    def _transcribe_cloud(self, audio_path: str):
+        """Transcribe via Groq Whisper API (free) or OpenAI Whisper API. Returns (text, segments_list)."""
+        import os
+        groq_key = os.getenv("GROQ_API_KEY", "")
+        openai_key = os.getenv("OPENAI_API_KEY", "")
+        if not groq_key and not openai_key:
+            logger.warning("no_cloud_transcription_key_set")
+            return "", []
+        try:
+            with open(audio_path, "rb") as f:
+                audio_bytes = f.read()
+            if groq_key:
+                api_url = "https://api.groq.com/openai/v1/audio/transcriptions"
+                api_key = groq_key
+                model = "whisper-large-v3-turbo"
+            else:
+                api_url = "https://api.openai.com/v1/audio/transcriptions"
+                api_key = openai_key
+                model = "whisper-1"
+            resp = httpx.post(
+                api_url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                files={"file": ("audio.mp3", audio_bytes, "audio/mpeg")},
+                data={"model": model, "response_format": "verbose_json"},
+                timeout=300.0,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            text = result.get("text", "").strip()
+            segs = [
+                {"start": round(s["start"], 1), "text": s["text"].strip()}
+                for s in result.get("segments", [])
+            ]
+            logger.info("cloud_transcription_ok", chars=len(text), segments=len(segs))
+            return text, segs
+        except Exception as e:
+            logger.error("cloud_transcription_error", error=str(e))
+            return "", []
+
+    def _download_and_transcribe_audio(self, url: str):
+        """Download audio at low bitrate and transcribe via cloud API. Returns (text, segments_list)."""
+        try:
+            import yt_dlp
+            with tempfile.TemporaryDirectory() as tmpdir:
+                audio_path = os.path.join(tmpdir, "audio.mp3")
+                ydl_opts = {
+                    "format": "worstaudio/worst",
+                    "outtmpl": audio_path,
+                    "postprocessors": [{
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "mp3",
+                        "preferredquality": "32",
+                    }],
+                    "postprocessor_args": {"FFmpegExtractAudio": ["-ac", "1"]},
+                    "quiet": True,
+                    "no_warnings": True,
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+
+                actual_path = audio_path
+                for fname in os.listdir(tmpdir):
+                    if fname.startswith("audio"):
+                        actual_path = os.path.join(tmpdir, fname)
+                        break
+
+                if os.path.exists(actual_path):
+                    return self._transcribe_cloud(actual_path)
+        except Exception as e:
+            logger.warning("download_and_transcribe_audio_failed", url=url, error=str(e))
+        return "", []
 
     def _transcribe(self, audio_path: str):
         """Transcribe audio using faster-whisper. Returns (text, segments_list). Disabled via DISABLE_WHISPER=true."""

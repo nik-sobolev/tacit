@@ -1164,7 +1164,7 @@ The user is looking for specific information from their knowledge base.
             host = urlparse(url).netloc.lower().replace("www.", "")
 
             with self.db.session_scope() as s:
-                existing = s.query(NodeDB).filter_by(url=url).first()
+                existing = s.query(NodeDB).filter_by(url=url, user_id=self._current_user_id).first()
                 if existing:
                     return {
                         "duplicate": True,

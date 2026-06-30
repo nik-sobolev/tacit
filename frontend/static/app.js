@@ -221,6 +221,13 @@ function categoryColor(name) {
 function normalizeUrl(url) {
     try {
         const u = new URL(url);
+        if (u.hostname.includes('youtube.com') && u.searchParams.has('v')) {
+            return `https://www.youtube.com/watch?v=${u.searchParams.get('v')}`;
+        }
+        if (u.hostname.includes('youtu.be')) {
+            const vid = u.pathname.slice(1).split('/')[0];
+            return `https://www.youtube.com/watch?v=${vid}`;
+        }
         return (u.origin + u.pathname).toLowerCase().replace(/\/$/, '');
     } catch {
         return url.toLowerCase().replace(/\/$/, '');

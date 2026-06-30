@@ -314,6 +314,33 @@ async def startup_event():
     import threading
     threading.Thread(target=_reindex_missing_nodes, daemon=True).start()
     threading.Thread(target=_process_pending_nodes, daemon=True).start()
+    threading.Thread(target=_watchdog_stuck_nodes, daemon=True).start()
+
+
+def _watchdog_stuck_nodes():
+    """Periodically reset nodes stuck in processing for >15 min to error state."""
+    from .db.database import NodeDB, get_database
+    from datetime import timedelta
+    import time
+    from datetime import datetime
+    time.sleep(60)  # Initial delay before first check
+    while True:
+        try:
+            cutoff = datetime.utcnow() - timedelta(minutes=15)
+            with get_database().session_scope() as session:
+                stuck = session.query(NodeDB).filter(
+                    NodeDB.status == "processing",
+                    NodeDB.created_at < cutoff
+                ).all()
+                for node in stuck:
+                    node.status = "error"
+                    node.error_message = "Processing timed out — re-add the URL to retry"
+                    logger.warning("node_processing_timeout", node_id=node.id, title=node.title)
+                if stuck:
+                    logger.info("watchdog_reset_stuck_nodes", count=len(stuck))
+        except Exception as e:
+            logger.error("watchdog_error", error=str(e))
+        time.sleep(300)  # Check every 5 minutes
 
 
 def _recover_stuck_nodes():
