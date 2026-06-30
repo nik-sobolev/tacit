@@ -171,6 +171,7 @@ class IngestionService:
                     "outtmpl": os.path.join(tmpdir, "%(id)s"),
                     "quiet": True,
                     "no_warnings": True,
+                    "extractor_args": {"youtube": {"player_client": ["android", "tv_embedded"]}},
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
@@ -349,6 +350,7 @@ class IngestionService:
                     "postprocessor_args": {"FFmpegExtractAudio": ["-ac", "1"]},
                     "quiet": True,
                     "no_warnings": True,
+                    "extractor_args": {"youtube": {"player_client": ["android", "tv_embedded"]}},
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
@@ -360,7 +362,11 @@ class IngestionService:
                         break
 
                 if os.path.exists(actual_path):
+                    fsize = os.path.getsize(actual_path)
+                    logger.info("audio_download_ok", url=url, path=actual_path, size_mb=round(fsize/1024/1024, 2))
                     return self._transcribe_cloud(actual_path)
+                else:
+                    logger.warning("audio_file_not_found", url=url, tmpdir_contents=os.listdir(tmpdir))
         except Exception as e:
             logger.warning("download_and_transcribe_audio_failed", url=url, error=str(e))
         return "", []
@@ -394,6 +400,7 @@ class IngestionService:
                 "quiet": True,
                 "no_warnings": True,
                 "extract_flat": False,
+                "extractor_args": {"youtube": {"player_client": ["android", "tv_embedded"]}},
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
