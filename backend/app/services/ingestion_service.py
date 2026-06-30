@@ -105,13 +105,13 @@ class IngestionService:
         transcript_segments = []
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
-            raw = YouTubeTranscriptApi.get_transcript(video_id, languages=["en", "en-US", "en-GB"])
-            entries = []
-            for entry in raw:
-                if isinstance(entry, dict):
-                    entries.append({"text": entry.get("text", ""), "start": entry.get("start", 0)})
-                else:
-                    entries.append({"text": getattr(entry, "text", ""), "start": getattr(entry, "start", 0)})
+            # 0.6.x uses instance-based API; 0.5.x used class methods
+            api = YouTubeTranscriptApi()
+            try:
+                raw = api.fetch(video_id, languages=["en", "en-US", "en-GB"])
+            except Exception:
+                raw = api.fetch(video_id)
+            entries = [{"text": s.text, "start": s.start} for s in raw]
             transcript_text = " ".join(e["text"] for e in entries)
             transcript_segments = [{"start": round(e["start"], 1), "text": e["text"]} for e in entries]
             logger.info("youtube_transcript_api_ok", video_id=video_id, segments=len(entries))
@@ -180,6 +180,7 @@ class IngestionService:
                     "quiet": True,
                     "no_warnings": True,
                     "extractor_args": {"youtube": {"player_client": ["android", "tv_embedded"]}},
+                    **self._yt_dlp_cookies_opts(),
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
@@ -341,6 +342,21 @@ class IngestionService:
             logger.error("cloud_transcription_error", error=str(e))
             return "", []
 
+    def _yt_dlp_cookies_opts(self) -> dict:
+        """Return cookiefile option if YOUTUBE_COOKIES env var is set (Netscape format)."""
+        import base64
+        cookies_b64 = os.getenv("YOUTUBE_COOKIES_B64", "")
+        if not cookies_b64:
+            return {}
+        try:
+            cookie_path = os.path.join(tempfile.gettempdir(), "yt_cookies.txt")
+            with open(cookie_path, "wb") as f:
+                f.write(base64.b64decode(cookies_b64))
+            return {"cookiefile": cookie_path}
+        except Exception as e:
+            logger.warning("yt_dlp_cookie_load_failed", error=str(e))
+            return {}
+
     def _download_and_transcribe_audio(self, url: str):
         """Download audio at low bitrate and transcribe via cloud API. Returns (text, segments_list)."""
         try:
@@ -359,6 +375,7 @@ class IngestionService:
                     "quiet": True,
                     "no_warnings": True,
                     "extractor_args": {"youtube": {"player_client": ["android", "tv_embedded"]}},
+                    **self._yt_dlp_cookies_opts(),
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
@@ -409,6 +426,7 @@ class IngestionService:
                 "no_warnings": True,
                 "extract_flat": False,
                 "extractor_args": {"youtube": {"player_client": ["android", "tv_embedded"]}},
+                **self._yt_dlp_cookies_opts(),
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
