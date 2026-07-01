@@ -10,6 +10,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 import httpx
+import time
 
 from ..db.database import get_database, NodeDB
 
@@ -60,7 +61,7 @@ class IngestionService:
                 "title": url,
                 "content": "",
                 "thumbnail_url": None,
-                "metadata": {"error": str(e)},
+                "metadata": {"error": str(e), "extraction_failed": True},
             }
 
         extraction_failed = data.get("metadata", {}).get("extraction_failed", False)
@@ -76,7 +77,7 @@ class IngestionService:
             canvas_x=canvas_x,
             canvas_y=canvas_y,
             status="error" if extraction_failed else "processing",
-            error_message="TikTok extraction failed — video may be private, deleted, or region-blocked" if extraction_failed else None,
+            error_message=data.get("metadata", {}).get("error") if extraction_failed else None,
             tags=[],
             node_meta=data.get("metadata", {}),
             created_at=datetime.utcnow(),
@@ -100,17 +101,38 @@ class IngestionService:
         if not video_id:
             raise ValueError(f"Could not parse YouTube video ID from: {url}")
 
+        def _retry(func, *args, **kwargs):
+            """Retry a function call up to N times on exception, where N is from YT_DLP_RETRIES env var."""
+            max_attempts = self._get_yt_dlp_retries()
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    if attempt == max_attempts:
+                        raise
+                    logger.warning(
+                        f"Attempt {attempt} failed for {getattr(func, '__name__', str(func))}, retrying...",
+                        error=str(e),
+                        video_id=video_id,
+                    )
+                    time.sleep(0.5 * attempt)  # backoff
+
         # Get transcript via youtube-transcript-api (preserves timestamps)
         transcript_text = ""
         transcript_segments = []
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
-            # 0.6.x uses instance-based API; 0.5.x used class methods
-            api = YouTubeTranscriptApi()
-            try:
-                raw = api.fetch(video_id, languages=["en", "en-US", "en-GB"])
-            except Exception:
-                raw = api.fetch(video_id)
+
+            def _fetch_transcript():
+                # 0.6.x uses instance-based API; 0.5.x used class methods
+                api = YouTubeTranscriptApi()
+                try:
+                    raw = api.fetch(video_id, languages=["en", "en-US", "en-GB"])
+                except Exception:
+                    raw = api.fetch(video_id)
+                return raw
+
+            raw = _retry(_fetch_transcript)
             entries = [{"text": s.text, "start": s.start} for s in raw]
             transcript_text = " ".join(e["text"] for e in entries)
             transcript_segments = [{"start": round(e["start"], 1), "text": e["text"]} for e in entries]
@@ -120,17 +142,32 @@ class IngestionService:
 
         # Fallback: yt-dlp subtitle extraction
         if not transcript_text:
-            transcript_text = self._get_yt_dlp_subtitles(url) or ""
-            if transcript_text:
-                logger.info("yt_dlp_subtitles_ok", video_id=video_id)
+            try:
+                transcript_text = _retry(self._get_yt_dlp_subtitles, url) or ""
+                if transcript_text:
+                    logger.info("yt_dlp_subtitles_ok", video_id=video_id)
+            except Exception as e:
+                logger.warning("yt_dlp_subtitles_failed", video_id=video_id, error=str(e))
 
         # Final fallback: download audio and transcribe via cloud Whisper API
         if not transcript_text:
-            logger.info("youtube_falling_back_to_audio_transcription", video_id=video_id)
-            transcript_text, transcript_segments = self._download_and_transcribe_audio(url)
+            try:
+                transcript_text, transcript_segments = _retry(self._download_and_transcribe_audio, url)
+                if transcript_text:
+                    logger.info("youtube_audio_transcription_ok", video_id=video_id)
+                else:
+                    logger.warning("youtube_audio_transcription_empty", video_id=video_id)
+            except Exception as e:
+                logger.error("youtube_audio_transcription_failed", video_id=video_id, error=str(e))
+                # If we still have no transcript, we will raise later
 
         # Get metadata via yt-dlp (no download)
-        metadata = self._get_video_metadata(url)
+        try:
+            metadata = _retry(self._get_video_metadata, url)
+        except Exception as e:
+            logger.error("youtube_metadata_failed", video_id=video_id, error=str(e))
+            metadata = {}
+
         title = metadata.get("title", f"YouTube Video {video_id}")
         thumbnail_url = metadata.get("thumbnail") or f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg"
 
@@ -144,6 +181,10 @@ class IngestionService:
         }
         if transcript_segments:
             result_meta["transcript_segments"] = transcript_segments
+
+        # Ensure we have some transcript; if not, raise an error so the caller marks the node as error
+        if not transcript_text:
+            raise ValueError(f"No transcript could be extracted for YouTube video {video_id}")
 
         return {
             "title": title,
@@ -167,7 +208,7 @@ class IngestionService:
 
     def _get_yt_dlp_subtitles(self, url: str) -> str:
         """Try to get subtitles via yt-dlp (auto-generated captions)."""
-        try:
+        def _download_and_parse():
             import yt_dlp
             with tempfile.TemporaryDirectory() as tmpdir:
                 ydl_opts = {
@@ -179,7 +220,6 @@ class IngestionService:
                     "outtmpl": os.path.join(tmpdir, "%(id)s"),
                     "quiet": True,
                     "no_warnings": True,
-                    "extractor_args": {"youtube": {"player_client": ["android", "tv_embedded"]}},
                     **self._yt_dlp_cookies_opts(),
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -190,8 +230,29 @@ class IngestionService:
                     if fname.endswith(".vtt"):
                         vtt_path = os.path.join(tmpdir, fname)
                         return self._parse_vtt(vtt_path)
-        except Exception as e:
-            logger.warning("yt_dlp_subtitles_failed", url=url, error=str(e))
+            return ""
+
+        max_attempts = self._get_yt_dlp_retries()
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result = _download_and_parse()
+                if result:
+                    return result
+                # If result is empty string, treat as failure and retry? Maybe not, because empty might mean no subtitles.
+                # We'll break if we got empty string (no subtitles) because retrying won't help.
+                if result == "":
+                    break
+            except Exception as e:
+                if attempt == max_attempts:
+                    logger.warning("yt_dlp_subtitles_failed after retries", url=url, error=str(e))
+                    return ""
+                wait = 0.5 * attempt
+                logger.warning(
+                    f"Attempt {attempt} failed for yt-dlp subtitles, retrying in {wait}s",
+                    url=url,
+                    error=str(e),
+                )
+                time.sleep(wait)
         return ""
 
     def _parse_vtt(self, vtt_path: str) -> str:
@@ -212,71 +273,107 @@ class IngestionService:
 
     def _extract_social_video(self, url: str) -> Dict[str, Any]:
         """Download video via yt-dlp + whisper, fall back to oEmbed if yt-dlp fails."""
-        # Attempt 1: yt-dlp audio download + faster-whisper transcription
+        metadata = self._get_video_metadata(url)
+        title = metadata.get("title", "")
+        thumbnail_url = metadata.get("thumbnail")
+
+        # Attempt 1: yt-dlp audio download + transcription (local then cloud)
+        def _download_audio_with_retry():
+            max_attempts = 3
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    import yt_dlp
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        audio_path = os.path.join(tmpdir, "audio.mp3")
+                        ydl_opts = {
+                            "format": "bestaudio[ext=m4a]/bestaudio/best",
+                            "outtmpl": audio_path,
+                            "postprocessors": [{
+                                "key": "FFmpegExtractAudio",
+                                "preferredcodec": "mp3",
+                                "preferredquality": "128",
+                            }],
+                            "postprocessor_args": {"FFmpegExtractAudio": ["-ac", "1"]},
+                            "quiet": True,
+                            "no_warnings": True,
+                            "http_headers": {
+                                "User-Agent": "com.zhiliaoapp.musically/2022600050 (Linux; U; Android 7.1.2; es_ES; SM-G988N; Build/NRD90M;tt-ok/3.12.13.1)"
+                            },
+                            "extractor_args": {"tiktok": {"app_name": "musically", "app_version": "2022600050"}},
+                            **self._yt_dlp_cookies_opts(),
+                            **self._tiktok_cookies_opts(),
+                        }
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            ydl.download([url])
+
+                        actual_path = audio_path
+                        for fname in os.listdir(tmpdir):
+                            if fname.startswith("audio"):
+                                actual_path = os.path.join(tmpdir, fname)
+                                break
+
+                        if os.path.exists(actual_path):
+                            fsize = os.path.getsize(actual_path)
+                            logger.info("tiktok_audio_download_ok", url=url, path=actual_path, size_mb=round(fsize/1024/1024, 2))
+                            return actual_path
+                        else:
+                            logger.warning("tiktok_audio_file_not_found", url=url, tmpdir_contents=os.listdir(tmpdir))
+                            raise FileNotFoundError("Audio file not found after download")
+                except Exception as e:
+                    if attempt == max_attempts:
+                        raise
+                    wait = 0.5 * attempt
+                    logger.warning(
+                        f"TikTok audio download attempt {attempt} failed, retrying in {wait}s",
+                        url=url,
+                        error=str(e),
+                    )
+                    time.sleep(wait)
+            raise RuntimeError("Unexpected error in retry loop")
+
+        transcript_text = ""
+        transcript_segments = []
         try:
-            import yt_dlp
-            metadata = self._get_video_metadata(url)
-            title = metadata.get("title", "")
-            thumbnail_url = metadata.get("thumbnail")
-            transcript_text = ""
-
-            with tempfile.TemporaryDirectory() as tmpdir:
-                audio_path = os.path.join(tmpdir, "audio.mp3")
-                ydl_opts = {
-                    "format": "bestaudio/best",
-                    "outtmpl": audio_path,
-                    "postprocessors": [{
-                        "key": "FFmpegExtractAudio",
-                        "preferredcodec": "mp3",
-                        "preferredquality": "128",
-                    }],
-                    "quiet": True,
-                    "no_warnings": True,
-                }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([url])
-
-                actual_path = audio_path
-                for fname in os.listdir(tmpdir):
-                    if fname.startswith("audio"):
-                        actual_path = os.path.join(tmpdir, fname)
-                        break
-
-                if os.path.exists(actual_path):
-                    transcript_text, transcript_segments = self._transcribe(actual_path)
-                    if not transcript_text:
-                        transcript_text, transcript_segments = self._transcribe_cloud(actual_path)
-
-            if transcript_text:
-                meta = {
-                    "duration": metadata.get("duration"),
-                    "uploader": metadata.get("uploader"),
-                    "upload_date": metadata.get("upload_date"),
-                    "description": (metadata.get("description") or "")[:500],
-                }
-                if transcript_segments:
-                    meta["transcript_segments"] = transcript_segments
-                return {
-                    "title": title or url,
-                    "content": transcript_text,
-                    "thumbnail_url": thumbnail_url,
-                    "metadata": meta,
-                }
-            logger.warning("social_video_empty_transcript", url=url)
-        except Exception as e:
-            logger.warning("social_video_yt_dlp_failed", url=url, error=str(e))
-
-        # Attempt 2: TikTok oEmbed (no auth, returns title + author + thumbnail)
-        parsed = urlparse(url)
-        host = parsed.netloc.lower().replace("www.", "")
-        if "tiktok.com" in host:
+            audio_path = _download_audio_with_retry()
+            # Try local transcription first (faster-whisper)
             try:
-                return self._extract_tiktok_oembed(url)
+                transcript_text, transcript_segments = self._transcribe(audio_path)
+                if transcript_text and len(transcript_text.strip()) >= 10:
+                    logger.info("tiktok_local_transcription_ok", url=url, length=len(transcript_text))
+                else:
+                    raise ValueError("Local transcription empty or too short")
             except Exception as e:
-                logger.warning("tiktok_oembed_failed", url=url, error=str(e))
+                logger.warning("tiktok_local_transcription_failed", url=url, error=str(e))
+                # Fallback to cloud transcription
+                transcript_text, transcript_segments = self._transcribe_cloud(audio_path)
+                if not transcript_text or len(transcript_text.strip()) < 10:
+                    raise ValueError("Cloud transcription empty or too short")
+                logger.info("tiktok_cloud_transcription_ok", url=url, length=len(transcript_text))
+        except Exception as e:
+            logger.error("tiktok_transcription_failed", url=url, error=str(e))
+            # Re-raise to ensure node is marked as error and can be retried
+            # Do NOT fall back to oEmbed only - if we can't get a transcript, treat as failure
+            raise
 
-        # Both paths failed — signal complete failure via sentinel title
-        return {"title": url, "content": "", "thumbnail_url": None, "metadata": {"extraction_failed": True}}
+        if transcript_text and len(transcript_text.strip()) >= 10:
+            meta = {
+                "duration": metadata.get("duration"),
+                "uploader": metadata.get("uploader"),
+                "upload_date": metadata.get("upload_date"),
+                "description": (metadata.get("description") or "")[:500],
+            }
+            if transcript_segments:
+                meta["transcript_segments"] = transcript_segments
+            return {
+                "title": title or url,
+                "content": transcript_text,
+                "thumbnail_url": thumbnail_url,
+                "metadata": meta,
+            }
+        else:
+            # This should not happen due to the checks above, but just in case
+            logger.warning("tiktok_transcription_insufficient", url=url)
+            raise ValueError("Transcript insufficient after all attempts")
 
     def _extract_tiktok_oembed(self, url: str) -> Dict[str, Any]:
         """Fetch TikTok title + author + thumbnail via the public oEmbed endpoint."""
@@ -357,44 +454,86 @@ class IngestionService:
             logger.warning("yt_dlp_cookie_load_failed", error=str(e))
             return {}
 
+    def _tiktok_cookies_opts(self) -> dict:
+        """Return cookiefile option if TIKTOK_COOKIES env var is set (Netscape format)."""
+        import base64
+        cookies_b64 = os.getenv("TIKTOK_COOKIES_B64", "")
+        if not cookies_b64:
+            return {}
+        try:
+            cookie_path = os.path.join(tempfile.gettempdir(), "tiktok_cookies.txt")
+            with open(cookie_path, "wb") as f:
+                f.write(base64.b64decode(cookies_b64))
+            return {"cookiefile": cookie_path}
+        except Exception as e:
+            logger.warning("tiktok_cookie_load_failed", error=str(e))
+            return {}
+
+    def _get_yt_dlp_retries(self) -> int:
+        """Get number of retry attempts for yt-dlp operations from environment variable."""
+        try:
+            return int(os.getenv("YT_DLP_RETRIES", "3"))
+        except ValueError:
+            logger.warning("invalid_yt_dlp_retries_env, using default of 3", env_var=os.getenv("YT_DLP_RETRIES"))
+            return 3
+
     def _download_and_transcribe_audio(self, url: str):
         """Download audio at low bitrate and transcribe via cloud API. Returns (text, segments_list)."""
+        def _download_with_retry():
+            max_attempts = self._get_yt_dlp_retries()
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    import yt_dlp
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        audio_path = os.path.join(tmpdir, "audio.mp3")
+                        ydl_opts = {
+                            "format": "worstaudio/worst",
+                            "outtmpl": audio_path,
+                            "postprocessors": [{
+                                "key": "FFmpegExtractAudio",
+                                "preferredcodec": "mp3",
+                                "preferredquality": "32",
+                            }],
+                            "postprocessor_args": {"FFmpegExtractAudio": ["-ac", "1"]},
+                            "quiet": True,
+                            "no_warnings": True,
+                            **self._yt_dlp_cookies_opts(),
+                        }
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            ydl.download([url])
+
+                        actual_path = audio_path
+                        for fname in os.listdir(tmpdir):
+                            if fname.startswith("audio"):
+                                actual_path = os.path.join(tmpdir, fname)
+                                break
+
+                        if os.path.exists(actual_path):
+                            fsize = os.path.getsize(actual_path)
+                            logger.info("audio_download_ok", url=url, path=actual_path, size_mb=round(fsize/1024/1024, 2))
+                            return actual_path
+                        else:
+                            logger.warning("audio_file_not_found", url=url, tmpdir_contents=os.listdir(tmpdir))
+                            raise FileNotFoundError("Audio file not found after download")
+                except Exception as e:
+                    if attempt == max_attempts:
+                        raise
+                    logger.warning(
+                        f"Audio download attempt {attempt} failed, retrying...",
+                        error=str(e),
+                        url=url,
+                    )
+                    time.sleep(0.5 * attempt)
+            # Should not reach here
+            raise RuntimeError("Unexpected error in retry loop")
+
         try:
-            import yt_dlp
-            with tempfile.TemporaryDirectory() as tmpdir:
-                audio_path = os.path.join(tmpdir, "audio.mp3")
-                ydl_opts = {
-                    "format": "worstaudio/worst",
-                    "outtmpl": audio_path,
-                    "postprocessors": [{
-                        "key": "FFmpegExtractAudio",
-                        "preferredcodec": "mp3",
-                        "preferredquality": "32",
-                    }],
-                    "postprocessor_args": {"FFmpegExtractAudio": ["-ac", "1"]},
-                    "quiet": True,
-                    "no_warnings": True,
-                    "extractor_args": {"youtube": {"player_client": ["android", "tv_embedded"]}},
-                    **self._yt_dlp_cookies_opts(),
-                }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([url])
-
-                actual_path = audio_path
-                for fname in os.listdir(tmpdir):
-                    if fname.startswith("audio"):
-                        actual_path = os.path.join(tmpdir, fname)
-                        break
-
-                if os.path.exists(actual_path):
-                    fsize = os.path.getsize(actual_path)
-                    logger.info("audio_download_ok", url=url, path=actual_path, size_mb=round(fsize/1024/1024, 2))
-                    return self._transcribe_cloud(actual_path)
-                else:
-                    logger.warning("audio_file_not_found", url=url, tmpdir_contents=os.listdir(tmpdir))
+            audio_path = _download_with_retry()
+            # Now transcribe via cloud API
+            return self._transcribe_cloud(audio_path)
         except Exception as e:
-            logger.warning("download_and_transcribe_audio_failed", url=url, error=str(e))
-        return "", []
+            logger.error("download_and_transcribe_audio_failed", url=url, error=str(e))
+            return "", []
 
     def _transcribe(self, audio_path: str):
         """Transcribe audio using faster-whisper. Returns (text, segments_list). Disabled via DISABLE_WHISPER=true."""
@@ -405,7 +544,7 @@ class IngestionService:
         try:
             if self._whisper_model is None:
                 from faster_whisper import WhisperModel
-                model_size = os.getenv("WHISPER_MODEL", "tiny")
+                model_size = os.getenv("WHISPER_MODEL", "base")
                 logger.info("loading_whisper_model", model=model_size)
                 self._whisper_model = WhisperModel(model_size, device="cpu", compute_type="int8")
 
@@ -425,7 +564,6 @@ class IngestionService:
                 "quiet": True,
                 "no_warnings": True,
                 "extract_flat": False,
-                "extractor_args": {"youtube": {"player_client": ["android", "tv_embedded"]}},
                 **self._yt_dlp_cookies_opts(),
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
