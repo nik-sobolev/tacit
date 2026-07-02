@@ -288,56 +288,47 @@ async def health_check():
 
 @app.get("/api/debug/youtube/{video_id}")
 async def debug_youtube(video_id: str):
-    """Diagnostic: test each transcript method and return results."""
-    import os, tempfile, traceback
-    results = {}
+    """Diagnostic: test each transcript method exactly as the real pipeline does.
 
-    # Test 1: youtube-transcript-api
+    Mirrors IngestionService: correct instance-based youtube-transcript-api,
+    and yt-dlp calls that pass YOUTUBE_COOKIES_B64 cookies (no stale player_client).
+    """
+    import os, base64, traceback
+    results = {"code_version": "debug-v2-cookies", "cookies_present": bool(os.getenv("YOUTUBE_COOKIES_B64"))}
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    # Test 1: youtube-transcript-api (0.6.x/1.x instance API — matches real code)
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
-        raw = YouTubeTranscriptApi.get_transcript(video_id, languages=["en", "en-US", "en-GB"])
+        api = YouTubeTranscriptApi()
+        try:
+            raw = api.fetch(video_id, languages=["en", "en-US", "en-GB"])
+        except Exception:
+            raw = api.fetch(video_id)
         entries = list(raw)
-        results["transcript_api"] = {"ok": True, "segments": len(entries), "preview": str(entries[0]) if entries else ""}
+        results["transcript_api"] = {"ok": True, "segments": len(entries)}
     except Exception as e:
-        results["transcript_api"] = {"ok": False, "error": str(e)}
+        results["transcript_api"] = {"ok": False, "error": str(e)[:400]}
 
-    # Test 2: yt-dlp metadata (with android client)
+    # Test 2: yt-dlp metadata WITH cookies (matches real _get_video_metadata)
     try:
-        import yt_dlp
-        ydl_opts = {
-            "quiet": True, "no_warnings": True,
-            "extractor_args": {"youtube": {"player_client": ["android", "tv_embedded"]}},
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-            results["yt_dlp_metadata"] = {"ok": True, "title": info.get("title"), "duration": info.get("duration")}
+        meta = ingestion_service._get_video_metadata(url)
+        if meta and meta.get("title"):
+            results["yt_dlp_metadata"] = {"ok": True, "title": meta.get("title"), "duration": meta.get("duration")}
+        else:
+            results["yt_dlp_metadata"] = {"ok": False, "error": "empty metadata (see logs)"}
     except Exception as e:
-        results["yt_dlp_metadata"] = {"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]}
+        results["yt_dlp_metadata"] = {"ok": False, "error": str(e)[:400], "trace": traceback.format_exc()[-400:]}
 
-    # Test 3: yt-dlp audio download (with android client)
+    # Test 3: yt-dlp subtitles WITH cookies (matches real _get_yt_dlp_subtitles)
     try:
-        import yt_dlp
-        with tempfile.TemporaryDirectory() as tmpdir:
-            ydl_opts = {
-                "format": "worstaudio/worst",
-                "outtmpl": os.path.join(tmpdir, "audio"),
-                "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "32"}],
-                "postprocessor_args": {"FFmpegExtractAudio": ["-ac", "1"]},
-                "quiet": True, "no_warnings": True,
-                "extractor_args": {"youtube": {"player_client": ["android", "tv_embedded"]}},
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
-            files = os.listdir(tmpdir)
-            sizes = {f: os.path.getsize(os.path.join(tmpdir, f)) for f in files}
-            results["yt_dlp_audio"] = {"ok": True, "files": sizes}
+        subs = ingestion_service._get_yt_dlp_subtitles(url) or ""
+        results["yt_dlp_subtitles"] = {"ok": bool(subs), "chars": len(subs)}
     except Exception as e:
-        results["yt_dlp_audio"] = {"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]}
+        results["yt_dlp_subtitles"] = {"ok": False, "error": str(e)[:400]}
 
-    # Test 4: Groq key present
     results["groq_key"] = {"present": bool(os.getenv("GROQ_API_KEY"))}
     results["ffmpeg"] = {"present": os.system("ffmpeg -version > /dev/null 2>&1") == 0}
-
     return results
 
 
