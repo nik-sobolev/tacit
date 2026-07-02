@@ -124,8 +124,16 @@ class IngestionService:
             from youtube_transcript_api import YouTubeTranscriptApi
 
             def _fetch_transcript():
-                # 0.6.x uses instance-based API; 0.5.x used class methods
-                api = YouTubeTranscriptApi()
+                # 1.x instance API. When a residential proxy is configured, route
+                # through it — YouTube blocks datacenter/cloud IPs (Render/AWS/GCP).
+                proxy = os.getenv("YOUTUBE_PROXY_URL", "").strip()
+                if proxy:
+                    from youtube_transcript_api.proxies import GenericProxyConfig
+                    api = YouTubeTranscriptApi(
+                        proxy_config=GenericProxyConfig(http_url=proxy, https_url=proxy)
+                    )
+                else:
+                    api = YouTubeTranscriptApi()
                 try:
                     raw = api.fetch(video_id, languages=["en", "en-US", "en-GB"])
                 except Exception:
@@ -221,6 +229,7 @@ class IngestionService:
                     "quiet": True,
                     "no_warnings": True,
                     **self._yt_dlp_cookies_opts(),
+                    **self._yt_dlp_proxy_opts(),
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
@@ -302,6 +311,7 @@ class IngestionService:
                             "extractor_args": {"tiktok": {"app_name": "musically", "app_version": "2022600050"}},
                             **self._yt_dlp_cookies_opts(),
                             **self._tiktok_cookies_opts(),
+                            **self._yt_dlp_proxy_opts(),
                         }
                         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                             ydl.download([url])
@@ -439,6 +449,16 @@ class IngestionService:
             logger.error("cloud_transcription_error", error=str(e))
             return "", []
 
+    def _yt_dlp_proxy_opts(self) -> dict:
+        """Return yt-dlp proxy option if YOUTUBE_PROXY_URL is set.
+
+        YouTube blocks datacenter/cloud IPs (Render/AWS/GCP/Azure). A residential
+        proxy makes requests look like they come from a home connection. Format:
+        http://user:pass@host:port  (e.g. Webshare rotating residential endpoint).
+        """
+        proxy = os.getenv("YOUTUBE_PROXY_URL", "").strip()
+        return {"proxy": proxy} if proxy else {}
+
     def _yt_dlp_cookies_opts(self) -> dict:
         """Return cookiefile option if YOUTUBE_COOKIES env var is set (Netscape format)."""
         import base64
@@ -498,6 +518,7 @@ class IngestionService:
                             "quiet": True,
                             "no_warnings": True,
                             **self._yt_dlp_cookies_opts(),
+                            **self._yt_dlp_proxy_opts(),
                         }
                         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                             ydl.download([url])
@@ -565,6 +586,7 @@ class IngestionService:
                 "no_warnings": True,
                 "extract_flat": False,
                 **self._yt_dlp_cookies_opts(),
+                **self._yt_dlp_proxy_opts(),
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)

@@ -294,13 +294,22 @@ async def debug_youtube(video_id: str):
     and yt-dlp calls that pass YOUTUBE_COOKIES_B64 cookies (no stale player_client).
     """
     import os, base64, traceback
-    results = {"code_version": "debug-v2-cookies", "cookies_present": bool(os.getenv("YOUTUBE_COOKIES_B64"))}
+    results = {
+        "code_version": "debug-v3-proxy",
+        "cookies_present": bool(os.getenv("YOUTUBE_COOKIES_B64")),
+        "proxy_present": bool(os.getenv("YOUTUBE_PROXY_URL", "").strip()),
+    }
     url = f"https://www.youtube.com/watch?v={video_id}"
 
     # Test 1: youtube-transcript-api (0.6.x/1.x instance API — matches real code)
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
-        api = YouTubeTranscriptApi()
+        _proxy = os.getenv("YOUTUBE_PROXY_URL", "").strip()
+        if _proxy:
+            from youtube_transcript_api.proxies import GenericProxyConfig
+            api = YouTubeTranscriptApi(proxy_config=GenericProxyConfig(http_url=_proxy, https_url=_proxy))
+        else:
+            api = YouTubeTranscriptApi()
         try:
             raw = api.fetch(video_id, languages=["en", "en-US", "en-GB"])
         except Exception:
