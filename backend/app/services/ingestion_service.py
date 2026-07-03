@@ -121,19 +121,10 @@ class IngestionService:
         transcript_text = ""
         transcript_segments = []
         try:
-            from youtube_transcript_api import YouTubeTranscriptApi
-
             def _fetch_transcript():
-                # 1.x instance API. When a residential proxy is configured, route
-                # through it — YouTube blocks datacenter/cloud IPs (Render/AWS/GCP).
-                proxy = os.getenv("YOUTUBE_PROXY_URL", "").strip()
-                if proxy:
-                    from youtube_transcript_api.proxies import GenericProxyConfig
-                    api = YouTubeTranscriptApi(
-                        proxy_config=GenericProxyConfig(http_url=proxy, https_url=proxy)
-                    )
-                else:
-                    api = YouTubeTranscriptApi()
+                # 1.x instance API, routed through the residential proxy when set
+                # (YouTube blocks datacenter/cloud IPs — Render/AWS/GCP/Azure).
+                api = self._transcript_api()
                 try:
                     raw = api.fetch(video_id, languages=["en", "en-US", "en-GB"])
                 except Exception:
@@ -449,15 +440,48 @@ class IngestionService:
             logger.error("cloud_transcription_error", error=str(e))
             return "", []
 
-    def _yt_dlp_proxy_opts(self) -> dict:
-        """Return yt-dlp proxy option if YOUTUBE_PROXY_URL is set.
+    def _webshare_creds(self):
+        """Webshare residential proxy credentials, if configured."""
+        return (
+            os.getenv("WEBSHARE_PROXY_USERNAME", "").strip(),
+            os.getenv("WEBSHARE_PROXY_PASSWORD", "").strip(),
+        )
 
-        YouTube blocks datacenter/cloud IPs (Render/AWS/GCP/Azure). A residential
-        proxy makes requests look like they come from a home connection. Format:
-        http://user:pass@host:port  (e.g. Webshare rotating residential endpoint).
+    def _proxy_url(self) -> str:
+        """Effective residential proxy URL for yt-dlp.
+
+        YouTube blocks datacenter/cloud IPs (Render/AWS/GCP/Azure); a residential
+        proxy makes traffic look like a home connection. Prefers Webshare creds
+        (auto-builds the rotating-residential endpoint so the URL can't be
+        mis-formatted), else falls back to a raw YOUTUBE_PROXY_URL.
         """
-        proxy = os.getenv("YOUTUBE_PROXY_URL", "").strip()
-        return {"proxy": proxy} if proxy else {}
+        user, pw = self._webshare_creds()
+        if user and pw:
+            # '-rotate' suffix = new residential IP per request
+            return f"http://{user}-rotate:{pw}@p.webshare.io:80"
+        return os.getenv("YOUTUBE_PROXY_URL", "").strip()
+
+    def _yt_dlp_proxy_opts(self) -> dict:
+        """Return yt-dlp proxy option when a residential proxy is configured."""
+        url = self._proxy_url()
+        return {"proxy": url} if url else {}
+
+    def _transcript_api(self):
+        """Build a YouTubeTranscriptApi routed through the residential proxy if set."""
+        from youtube_transcript_api import YouTubeTranscriptApi
+        user, pw = self._webshare_creds()
+        if user and pw:
+            from youtube_transcript_api.proxies import WebshareProxyConfig
+            return YouTubeTranscriptApi(
+                proxy_config=WebshareProxyConfig(proxy_username=user, proxy_password=pw)
+            )
+        url = os.getenv("YOUTUBE_PROXY_URL", "").strip()
+        if url:
+            from youtube_transcript_api.proxies import GenericProxyConfig
+            return YouTubeTranscriptApi(
+                proxy_config=GenericProxyConfig(http_url=url, https_url=url)
+            )
+        return YouTubeTranscriptApi()
 
     def _yt_dlp_cookies_opts(self) -> dict:
         """Return cookiefile option if YOUTUBE_COOKIES env var is set (Netscape format)."""
