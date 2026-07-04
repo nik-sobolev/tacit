@@ -965,7 +965,7 @@ async function openDetail(nodeId) {
         // Build transcript HTML — timestamped segments or plain text fallback
         let transcriptHTML = '';
         if (segments.length > 0) {
-            const segmentsHTML = segments.map(seg => {
+            const segmentsHTML = _groupSegments(segments).map(seg => {
                 const secs = Math.floor(seg.start);
                 const mins = Math.floor(secs / 60);
                 const s = secs % 60;
@@ -1015,6 +1015,21 @@ function _getDetailNode(nodeId) {
     return panel && panel._nodeData && panel._nodeData.id === nodeId ? panel._nodeData : null;
 }
 
+// Group fine-grained transcript segments (~2s each from youtube-transcript-api)
+// into readable ~30s paragraphs, each with a single timestamp — like usetranscribe.io.
+function _groupSegments(segments, gapSeconds = 30) {
+    const paras = [];
+    let cur = null;
+    for (const seg of segments) {
+        if (!cur || (seg.start - cur.start) >= gapSeconds) {
+            cur = { start: seg.start, texts: [] };
+            paras.push(cur);
+        }
+        cur.texts.push((seg.text || '').trim());
+    }
+    return paras.map(p => ({ start: p.start, text: p.texts.join(' ') }));
+}
+
 function _buildTranscriptText(node) {
     const meta = node.metadata || {};
     const keyPoints = meta.key_points || [];
@@ -1027,12 +1042,12 @@ function _buildTranscriptText(node) {
         out += 'Key Points:\n' + keyPoints.map(p => '• ' + p).join('\n') + '\n\n';
     }
     if (segments.length) {
-        out += 'Transcript:\n' + segments.map(seg => {
+        out += 'Transcript:\n' + _groupSegments(segments).map(seg => {
             const secs = Math.floor(seg.start);
             const mins = Math.floor(secs / 60);
             const s = secs % 60;
             return `[${mins}:${String(s).padStart(2, '0')}] ${seg.text}`;
-        }).join('\n');
+        }).join('\n\n');
     }
     return out.trim();
 }
@@ -1051,7 +1066,7 @@ function _buildTranscriptMd(node) {
     }
     if (segments.length) {
         md += '## Transcript\n\n';
-        md += segments.map(seg => {
+        md += _groupSegments(segments).map(seg => {
             const secs = Math.floor(seg.start);
             const mins = Math.floor(secs / 60);
             const s = secs % 60;

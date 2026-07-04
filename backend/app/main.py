@@ -214,8 +214,16 @@ async def transcript_md(node_id: str):
     if segments:
         lines.append("## Transcript")
         lines.append("")
+        # Group fine-grained (~2s) segments into readable ~30s paragraphs.
+        paras, cur = [], None
         for seg in segments:
-            secs = int(seg.get("start", 0))
+            start = seg.get("start", 0)
+            if cur is None or (start - cur["start"]) >= 30:
+                cur = {"start": start, "texts": []}
+                paras.append(cur)
+            cur["texts"].append(seg.get("text", "").strip())
+        for p in paras:
+            secs = int(p["start"])
             mins = secs // 60
             s = secs % 60
             label = f"{mins}:{str(s).zfill(2)}"
@@ -223,8 +231,7 @@ async def transcript_md(node_id: str):
                 ts = f"[[{label}]](https://www.youtube.com/watch?v={video_id}&t={secs}s)"
             else:
                 ts = f"**[{label}]**"
-            text = seg.get("text", "").strip()
-            lines.append(f"{ts} {text}")
+            lines.append(f"{ts} {' '.join(p['texts'])}")
             lines.append("")
     elif data["content"]:
         lines.append("## Transcript")
