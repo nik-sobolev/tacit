@@ -248,6 +248,10 @@ async def transcript_md(node_id: str):
         lines.append("")
         lines.append(data["content"])
 
+    lines.append("")
+    lines.append("---")
+    lines.append("*Transcribed with [Tacit](https://www.trytacit.app)*")
+
     md = "\n".join(lines).strip() + "\n"
     return PlainTextResponse(md, media_type="text/plain; charset=utf-8")
 

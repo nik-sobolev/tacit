@@ -1061,6 +1061,7 @@ function _buildTranscriptText(node) {
             return `[${mins}:${String(s).padStart(2, '0')}] ${seg.text}`;
         }).join('\n\n');
     }
+    out += '\n\n— Transcribed with Tacit → https://www.trytacit.app';
     return out.trim();
 }
 
@@ -1089,6 +1090,7 @@ function _buildTranscriptMd(node) {
             return `${link} ${seg.text}`;
         }).join('\n\n');
     }
+    md += '\n\n---\n*Transcribed with [Tacit](https://www.trytacit.app)*';
     return md.trim();
 }
 
