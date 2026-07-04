@@ -983,9 +983,9 @@ async function openDetail(nodeId) {
         // Action bar for video nodes
         const actionBar = isVideo ? `
             <div class="detail-actions">
-                <button class="detail-action-btn" onclick="copyTranscriptText('${node.id}')" title="Copy to clipboard">Copy</button>
+                <button class="detail-action-btn" onclick="copyTranscriptText('${node.id}', this)" title="Copy to clipboard">Copy</button>
                 <button class="detail-action-btn" onclick="downloadTranscriptMd('${node.id}')" title="Open as markdown page">.md</button>
-                <button class="detail-action-btn" onclick="shareTranscript('${node.id}')" title="Copy transcript URL">Share</button>
+                <button class="detail-action-btn" onclick="shareTranscript('${node.id}', this)" title="Copy transcript URL">Share</button>
             </div>` : '';
 
         content.innerHTML = `
@@ -1126,18 +1126,26 @@ function _copyViaExecCommand(text) {
     });
 }
 
-function copyTranscriptText(nodeId) {
+function copyTranscriptText(nodeId, btn) {
     const node = _getDetailNode(nodeId);
     if (!node) {
         showToast('Could not find this node — try reopening it', 'error');
         return;
     }
     _copyToClipboard(_buildTranscriptText(node)).then(() => {
-        const btn = document.querySelector('.detail-action-btn[title="Copy to clipboard"]');
-        if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 2000); }
+        _flashCopied(btn, 'Copy');
     }).catch(() => {
         showToast('Copy failed — your browser blocked clipboard access', 'error');
     });
+}
+
+// Flash "Copied!" on the button the user actually clicked, then restore its
+// label. Using the passed element avoids brittle title-attribute selectors
+// (the Share button's title is "Copy transcript URL", not "Share").
+function _flashCopied(btn, originalLabel) {
+    if (!btn) return;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = originalLabel; }, 2000);
 }
 
 function downloadTranscriptMd(nodeId) {
@@ -1149,11 +1157,11 @@ function downloadTranscriptMd(nodeId) {
     }
 }
 
-function shareTranscript(nodeId) {
+function shareTranscript(nodeId, btn) {
     const transcriptUrl = `${window.location.origin}/t/${nodeId}`;
     _copyToClipboard(transcriptUrl).then(() => {
-        const btn = document.querySelector('.detail-action-btn[title="Share"]');
-        if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Share'; }, 2000); }
+        _flashCopied(btn, 'Share');
+        showToast('Share link copied to clipboard', 'info');
     }).catch(() => {
         showToast('Copy failed — your browser blocked clipboard access', 'error');
     });
