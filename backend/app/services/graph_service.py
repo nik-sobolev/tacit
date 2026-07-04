@@ -28,34 +28,39 @@ class GraphService:
 
     def process_node(self, node_id: str) -> None:
         """Run Claude agent on a node: generate summary, tags, and auto-link to related nodes."""
-        session = self.db.get_session()
         try:
-            node = session.query(NodeDB).filter_by(id=node_id).first()
-            if not node:
-                logger.error("process_node_not_found", node_id=node_id)
-                return
+            session = self.db.get_session()
+            try:
+                node = session.query(NodeDB).filter_by(id=node_id).first()
+                if not node:
+                    logger.error("process_node_not_found", node_id=node_id)
+                    return
 
-            # Get existing nodes for context (before adding this one to vector DB)
-            existing = self.vector_service.search_nodes(node.content[:2000] if node.content else node.title or "", limit=5)
-            existing_summary = "\n".join(
-                f"- [{n['id']}] {n['metadata'].get('title', 'Untitled')}: {n['content'][:200]}"
-                for n in existing
-                if n['id'] != node_id
-            )
+                # Get existing nodes for context (before adding this one to vector DB)
+                existing = self.vector_service.search_nodes(node.content[:2000] if node.content else node.title or "", limit=5)
+                existing_summary = "\n".join(
+                    f"- [{n['id']}] {n['metadata'].get('title', 'Untitled')}: {n['content'][:200]}"
+                    for n in existing
+                    if n['id'] != node_id
+                )
 
-            # Gather existing categories for consistency
-            existing_categories = self._get_existing_categories(session)
-            agent_result = self._run_agent(node, existing_summary, existing_categories)
+                # Gather existing categories for consistency
+                existing_categories = self._get_existing_categories(session)
+                agent_result = self._run_agent(node, existing_summary, existing_categories)
 
-            node_type = node.type
-            node_url = node.url or ""
-            node_content = node.content or ""
-            node_created_at = node.created_at
+                node_type = node.type
+                node_url = node.url or ""
+                node_content = node.content or ""
+                node_created_at = node.created_at
+                node_title = node.title
+                node_meta_in = dict(node.node_meta or {})
+            finally:
+                session.close()
 
-            title_out = (agent_result.get("title") or node.title or "")[:500]
+            title_out = (agent_result.get("title") or node_title or "")[:500]
             summary_out = agent_result.get("summary") or ""
             tags_out = (agent_result.get("tags") or [])[:10]
-            meta = dict(node.node_meta or {})
+            meta = node_meta_in
             if agent_result.get("key_entities"):
                 meta["key_entities"] = agent_result["key_entities"]
             if agent_result.get("category"):
@@ -64,18 +69,25 @@ class GraphService:
                 meta["purpose"] = agent_result["purpose"]
             if agent_result.get("key_points"):
                 meta["key_points"] = agent_result["key_points"]
-            content_out = (node.content or "")[:3000]
+            content_out = (node_content or "")[:3000]
+            processed_at = datetime.utcnow()
 
-            # Update via SQLAlchemy so it works with both SQLite and Postgres
-            node.title = title_out
-            node.summary = summary_out
-            node.status = "done"
-            node.tags = tags_out
-            node.node_meta = meta
-            node.processed_at = datetime.utcnow()
-            session.commit()
-            session.close()
-            session = None
+            # Save via the retry-aware helper — the DB write is the one step that has
+            # been observed to fail with transient errors ("disk I/O error" / "database
+            # is locked" on SQLite; connection blips on Postgres). run_with_retry
+            # recycles the engine and retries once instead of losing the agent's work.
+            def _save(s):
+                n = s.query(NodeDB).filter_by(id=node_id).first()
+                if not n:
+                    return
+                n.title = title_out
+                n.summary = summary_out
+                n.status = "done"
+                n.tags = tags_out
+                n.node_meta = meta
+                n.processed_at = processed_at
+
+            self.db.run_with_retry(_save)
 
             # Add to vector DB
             embed_text = f"{title_out}\n{summary_out}\n{content_out}"
@@ -108,30 +120,16 @@ class GraphService:
 
         except Exception as e:
             logger.error("process_node_error", node_id=node_id, error=str(e))
-            if session:
-                try:
-                    session.rollback()
-                    session.close()
-                except Exception:
-                    pass
             try:
-                err_session = self.db.get_session()
-                try:
-                    n = err_session.query(NodeDB).filter_by(id=node_id).first()
+                def _mark_error(s):
+                    n = s.query(NodeDB).filter_by(id=node_id).first()
                     if n:
                         n.status = "error"
                         n.error_message = str(e)[:500]
-                        err_session.commit()
-                finally:
-                    err_session.close()
+
+                self.db.run_with_retry(_mark_error)
             except Exception as e2:
                 logger.error("process_node_error_handler_failed", node_id=node_id, error=str(e2))
-        finally:
-            if session:
-                try:
-                    session.close()
-                except Exception:
-                    pass
 
     def _get_existing_categories(self, session) -> List[str]:
         """Get distinct categories already used across nodes."""
