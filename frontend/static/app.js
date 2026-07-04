@@ -1016,16 +1016,28 @@ function _getDetailNode(nodeId) {
 }
 
 // Group fine-grained transcript segments (~2s each from youtube-transcript-api)
-// into readable ~30s paragraphs, each with a single timestamp — like usetranscribe.io.
-function _groupSegments(segments, gapSeconds = 30) {
+// into readable paragraphs with natural flow — like usetranscribe.io. Primary
+// break is the speaker-change marker (">>") that YouTube embeds in multi-speaker
+// captions; a sentence-boundary time fallback keeps solo/monologue videos chunked.
+function _groupSegments(segments, minPara = 25, maxGap = 60) {
     const paras = [];
     let cur = null;
     for (const seg of segments) {
-        if (!cur || (seg.start - cur.start) >= gapSeconds) {
+        const text = (seg.text || '').trim();
+        if (!text) continue;
+        const elapsed = cur ? (seg.start - cur.start) : Infinity;
+        const lastText = cur && cur.texts.length ? cur.texts[cur.texts.length - 1] : '';
+        const sentenceEnd = /[.?!"]$/.test(lastText);
+        // Break at a speaker change (">>"), but only once the paragraph has enough
+        // content, so short back-and-forth turns stay together. Fallback: break at a
+        // sentence boundary after maxGap for long monologues / solo videos.
+        const speakerBreak = text.includes('>>') && elapsed >= minPara;
+        const fallbackBreak = elapsed >= maxGap && sentenceEnd;
+        if (!cur || speakerBreak || fallbackBreak) {
             cur = { start: seg.start, texts: [] };
             paras.push(cur);
         }
-        cur.texts.push((seg.text || '').trim());
+        cur.texts.push(text);
     }
     return paras.map(p => ({ start: p.start, text: p.texts.join(' ') }));
 }

@@ -214,14 +214,24 @@ async def transcript_md(node_id: str):
     if segments:
         lines.append("## Transcript")
         lines.append("")
-        # Group fine-grained (~2s) segments into readable ~30s paragraphs.
+        # Group fine-grained (~2s) segments into natural paragraphs: break on the
+        # ">>" speaker-change marker YouTube embeds in captions, with a
+        # sentence-boundary time fallback for long monologues / solo videos.
         paras, cur = [], None
         for seg in segments:
             start = seg.get("start", 0)
-            if cur is None or (start - cur["start"]) >= 30:
+            text = seg.get("text", "").strip()
+            if not text:
+                continue
+            elapsed = (start - cur["start"]) if cur else float("inf")
+            last = cur["texts"][-1] if (cur and cur["texts"]) else ""
+            sentence_end = last[-1:] in (".", "?", "!", '"')
+            speaker_break = ">>" in text and elapsed >= 25
+            fallback_break = elapsed >= 60 and sentence_end
+            if cur is None or speaker_break or fallback_break:
                 cur = {"start": start, "texts": []}
                 paras.append(cur)
-            cur["texts"].append(seg.get("text", "").strip())
+            cur["texts"].append(text)
         for p in paras:
             secs = int(p["start"])
             mins = secs // 60
