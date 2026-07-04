@@ -983,9 +983,9 @@ async function openDetail(nodeId) {
         // Action bar for video nodes
         const actionBar = isVideo ? `
             <div class="detail-actions">
-                <button class="detail-action-btn" onclick="copyTranscriptText(${JSON.stringify(node.id)})" title="Copy to clipboard">Copy</button>
-                <button class="detail-action-btn" onclick="downloadTranscriptMd(${JSON.stringify(node.id)})" title="Open as markdown page">.md</button>
-                <button class="detail-action-btn" onclick="shareTranscript(${JSON.stringify(node.id)})" title="Copy transcript URL">Share</button>
+                <button class="detail-action-btn" onclick="copyTranscriptText('${node.id}')" title="Copy to clipboard">Copy</button>
+                <button class="detail-action-btn" onclick="downloadTranscriptMd('${node.id}')" title="Open as markdown page">.md</button>
+                <button class="detail-action-btn" onclick="shareTranscript('${node.id}')" title="Copy transcript URL">Share</button>
             </div>` : '';
 
         content.innerHTML = `
