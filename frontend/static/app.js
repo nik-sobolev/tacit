@@ -1094,24 +1094,67 @@ function _buildTranscriptMd(node) {
     return md.trim();
 }
 
+// Clipboard write with a fallback for browsers/contexts where the async
+// Clipboard API silently rejects (page not focused, stricter permission
+// policies) — falls back to the legacy execCommand path instead of failing
+// with zero visible feedback.
+function _copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text).catch(() => _copyViaExecCommand(text));
+    }
+    return _copyViaExecCommand(text);
+}
+
+function _copyViaExecCommand(text) {
+    return new Promise((resolve, reject) => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try {
+            const ok = document.execCommand('copy');
+            document.body.removeChild(ta);
+            ok ? resolve() : reject(new Error('execCommand copy failed'));
+        } catch (e) {
+            document.body.removeChild(ta);
+            reject(e);
+        }
+    });
+}
+
 function copyTranscriptText(nodeId) {
     const node = _getDetailNode(nodeId);
-    if (!node) return;
-    navigator.clipboard.writeText(_buildTranscriptText(node)).then(() => {
+    if (!node) {
+        showToast('Could not find this node — try reopening it', 'error');
+        return;
+    }
+    _copyToClipboard(_buildTranscriptText(node)).then(() => {
         const btn = document.querySelector('.detail-action-btn[title="Copy to clipboard"]');
         if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 2000); }
+    }).catch(() => {
+        showToast('Copy failed — your browser blocked clipboard access', 'error');
     });
 }
 
 function downloadTranscriptMd(nodeId) {
-    window.open(`/t/${nodeId}`, '_blank');
+    const url = `/t/${nodeId}`;
+    const win = window.open(url, '_blank');
+    if (!win) {
+        showToast('Popup blocked — opening in this tab instead', 'error');
+        window.location.href = url;
+    }
 }
 
 function shareTranscript(nodeId) {
     const transcriptUrl = `${window.location.origin}/t/${nodeId}`;
-    navigator.clipboard.writeText(transcriptUrl).then(() => {
+    _copyToClipboard(transcriptUrl).then(() => {
         const btn = document.querySelector('.detail-action-btn[title="Share"]');
         if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Share'; }, 2000); }
+    }).catch(() => {
+        showToast('Copy failed — your browser blocked clipboard access', 'error');
     });
 }
 
