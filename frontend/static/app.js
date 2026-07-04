@@ -1011,7 +1011,8 @@ async function openDetail(nodeId) {
 }
 
 function _getDetailNode(nodeId) {
-    const panel = document.getElementById('detail-panel');
+    // Must match the element id openDetail() stores _nodeData on ('nodeDetailPanel').
+    const panel = document.getElementById('nodeDetailPanel');
     return panel && panel._nodeData && panel._nodeData.id === nodeId ? panel._nodeData : null;
 }
 
