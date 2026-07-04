@@ -1,6 +1,7 @@
 """Tacit FastAPI application"""
 # Force redeploy
 
+import html
 import structlog
 from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -156,6 +157,173 @@ async def share_canvas(token: str):
     return HTMLResponse(html_file.read_text())
 
 
+def _group_segments(segments: list) -> list:
+    """Group fine-grained (~2s) caption segments into natural paragraphs: break on
+    the ">>" speaker-change marker YouTube embeds in captions, with a sentence-
+    boundary time fallback for long monologues / solo videos. Shared by the
+    markdown (/t) and HTML (/yt, /s) transcript renderers — don't re-copy this."""
+    paras, cur = [], None
+    for seg in segments:
+        start = seg.get("start", 0)
+        text = seg.get("text", "").strip()
+        if not text:
+            continue
+        elapsed = (start - cur["start"]) if cur else float("inf")
+        last = cur["texts"][-1] if (cur and cur["texts"]) else ""
+        sentence_end = last[-1:] in (".", "?", "!", '"')
+        speaker_break = ">>" in text and elapsed >= 25
+        fallback_break = elapsed >= 60 and sentence_end
+        if cur is None or speaker_break or fallback_break:
+            cur = {"start": start, "texts": []}
+            paras.append(cur)
+        cur["texts"].append(text)
+    return [{"start": p["start"], "text": " ".join(p["texts"])} for p in paras]
+
+
+def _slugify(title: str) -> str:
+    """URL-friendly slug for the pretty share URLs (/yt/{id}/{slug}, /s/{id}/{slug}).
+    Decorative only — routes resolve by id, the slug is never looked up."""
+    import re
+    s = re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")
+    return s[:60] or "video"
+
+
+def build_transcript_html(data: dict, canonical_url: str) -> str:
+    """Public, usetranscribe.io-style HTML transcript page: video/thumbnail, title,
+    summary, key points, timestamped transcript, OG/Twitter meta for rich link
+    previews, and a social-share row. Every dynamic field is html.escape()'d before
+    interpolation — title/summary/transcript/uploader originate from YouTube
+    captions/metadata and are untrusted input (XSS guard)."""
+    from urllib.parse import quote
+
+    meta = data["meta"]
+    raw_title = data["title"] or "Untitled"
+    title = html.escape(raw_title)
+    summary = html.escape(data["summary"] or "")
+    key_points = [html.escape(p) for p in (meta.get("key_points") or [])]
+    segments = meta.get("transcript_segments") or []
+    video_id = meta.get("video_id") or ""
+    uploader = html.escape(meta.get("uploader") or "")
+    source_url = data["url"] or ""
+    thumb = data.get("thumbnail_url") or (
+        f"https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg" if video_id else ""
+    )
+
+    desc_raw = (data["summary"] or "").strip()
+    og_description = html.escape((desc_raw[:200] + "…") if len(desc_raw) > 200 else desc_raw)
+
+    if video_id:
+        media_html = (
+            f'<div class="tc-embed"><iframe src="https://www.youtube.com/embed/{html.escape(video_id)}" '
+            f'title="{title}" frameborder="0" '
+            f'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" '
+            f'allowfullscreen loading="lazy"></iframe></div>'
+        )
+    elif thumb:
+        media_html = f'<img class="tc-thumb" src="{html.escape(thumb)}" alt="" loading="lazy" />'
+    else:
+        media_html = ""
+
+    key_points_html = ""
+    if key_points:
+        items = "".join(f"<li>{p}</li>" for p in key_points)
+        key_points_html = f'<ul class="tc-key-points">{items}</ul>'
+
+    paras = _group_segments(segments)
+    transcript_html = ""
+    if paras:
+        rows = []
+        for p in paras:
+            secs = int(p["start"])
+            mins, s = secs // 60, secs % 60
+            label = f"{mins}:{str(s).zfill(2)}"
+            text = html.escape(p["text"])
+            if video_id:
+                ts = (
+                    f'<a class="tc-ts" href="https://www.youtube.com/watch?v={html.escape(video_id)}&t={secs}s" '
+                    f'target="_blank" rel="noopener">{label}</a>'
+                )
+            else:
+                ts = f'<span class="tc-ts">{label}</span>'
+            rows.append(f'<p class="tc-para">{ts} {text}</p>')
+        transcript_html = "".join(rows)
+    elif data["content"]:
+        transcript_html = f'<p class="tc-para">{html.escape(data["content"])}</p>'
+
+    share_targets = [
+        ("X", f"https://twitter.com/intent/tweet?text={quote(raw_title)}&url={quote(canonical_url)}"),
+        ("LinkedIn", f"https://www.linkedin.com/sharing/share-offsite/?url={quote(canonical_url)}"),
+        ("Facebook", f"https://www.facebook.com/sharer/sharer.php?u={quote(canonical_url)}"),
+        ("WhatsApp", f"https://wa.me/?text={quote(raw_title + ' ' + canonical_url)}"),
+        ("Reddit", f"https://www.reddit.com/submit?url={quote(canonical_url)}&title={quote(raw_title)}"),
+    ]
+    share_html = "".join(
+        f'<a class="tc-share-btn" href="{u}" target="_blank" rel="noopener">{n}</a>' for n, u in share_targets
+    )
+
+    source_line = (
+        f'<a class="tc-source" href="{html.escape(source_url)}" target="_blank" rel="noopener">{html.escape(source_url)}</a>'
+        if source_url else ""
+    )
+    uploader_line = f'<span class="tc-uploader">{uploader}</span>' if uploader else ""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title} — Tacit</title>
+<meta name="description" content="{og_description}">
+<link rel="canonical" href="{html.escape(canonical_url)}">
+<meta property="og:title" content="{title}">
+<meta property="og:description" content="{og_description}">
+<meta property="og:image" content="{html.escape(thumb)}">
+<meta property="og:url" content="{html.escape(canonical_url)}">
+<meta property="og:type" content="article">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{title}">
+<meta name="twitter:description" content="{og_description}">
+<meta name="twitter:image" content="{html.escape(thumb)}">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Hanken+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{{--primary:#C26C33;--bg:#15171C;--surface:#13151A;--text:#ECE6D6;--text-secondary:#C7C2B2;--border:rgba(236,230,214,0.12);}}
+*{{box-sizing:border-box;}}
+body{{margin:0;background:var(--bg);color:var(--text);font-family:'Hanken Grotesk',sans-serif;line-height:1.6;}}
+.tc-wrap{{max-width:720px;margin:0 auto;padding:32px 20px 80px;}}
+.tc-embed{{position:relative;padding-top:56.25%;border-radius:12px;overflow:hidden;margin-bottom:24px;background:var(--surface);}}
+.tc-embed iframe{{position:absolute;inset:0;width:100%;height:100%;border:0;}}
+.tc-thumb{{width:100%;border-radius:12px;margin-bottom:24px;display:block;}}
+h1{{font-family:'Newsreader',serif;font-size:28px;font-weight:600;margin:0 0 8px;}}
+.tc-meta{{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-secondary);margin-bottom:24px;word-break:break-all;}}
+.tc-source{{color:var(--primary);text-decoration:none;}}
+.tc-uploader{{margin-right:12px;}}
+h2{{font-family:'Newsreader',serif;font-size:18px;margin:32px 0 12px;}}
+.tc-key-points{{padding-left:20px;color:var(--text-secondary);}}
+.tc-key-points li{{margin-bottom:6px;}}
+.tc-para{{margin:0 0 16px;color:var(--text-secondary);}}
+.tc-ts{{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--primary);text-decoration:none;margin-right:8px;}}
+.tc-share{{display:flex;flex-wrap:wrap;gap:8px;margin:32px 0;padding:16px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}}
+.tc-share-btn{{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px 12px;text-decoration:none;}}
+.tc-share-btn:hover{{border-color:var(--primary);color:var(--primary);}}
+.tc-cta{{text-align:center;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-secondary);margin-top:40px;}}
+.tc-cta a{{color:var(--primary);text-decoration:none;}}
+</style>
+</head>
+<body>
+<div class="tc-wrap">
+{media_html}
+<h1>{title}</h1>
+<div class="tc-meta">{uploader_line}{source_line}</div>
+{f'<h2>Summary</h2><p class="tc-para">{summary}</p>' if summary else ''}
+{f'<h2>Key Points</h2>{key_points_html}' if key_points_html else ''}
+{f'<h2>Transcript</h2>{transcript_html}' if transcript_html else ''}
+<div class="tc-share">{share_html}</div>
+<div class="tc-cta">Transcribed with <a href="https://www.trytacit.app">Tacit</a></div>
+</div>
+</body>
+</html>"""
+
+
 @app.get("/t/{node_id}")
 async def transcript_md(node_id: str):
     """Public transcript endpoint — returns raw markdown for a video node (like usetranscribe.io ?format=md).
@@ -214,25 +382,7 @@ async def transcript_md(node_id: str):
     if segments:
         lines.append("## Transcript")
         lines.append("")
-        # Group fine-grained (~2s) segments into natural paragraphs: break on the
-        # ">>" speaker-change marker YouTube embeds in captions, with a
-        # sentence-boundary time fallback for long monologues / solo videos.
-        paras, cur = [], None
-        for seg in segments:
-            start = seg.get("start", 0)
-            text = seg.get("text", "").strip()
-            if not text:
-                continue
-            elapsed = (start - cur["start"]) if cur else float("inf")
-            last = cur["texts"][-1] if (cur and cur["texts"]) else ""
-            sentence_end = last[-1:] in (".", "?", "!", '"')
-            speaker_break = ">>" in text and elapsed >= 25
-            fallback_break = elapsed >= 60 and sentence_end
-            if cur is None or speaker_break or fallback_break:
-                cur = {"start": start, "texts": []}
-                paras.append(cur)
-            cur["texts"].append(text)
-        for p in paras:
+        for p in _group_segments(segments):
             secs = int(p["start"])
             mins = secs // 60
             s = secs % 60
@@ -241,7 +391,7 @@ async def transcript_md(node_id: str):
                 ts = f"[[{label}]](https://www.youtube.com/watch?v={video_id}&t={secs}s)"
             else:
                 ts = f"**[{label}]**"
-            lines.append(f"{ts} {' '.join(p['texts'])}")
+            lines.append(f"{ts} {p['text']}")
             lines.append("")
     elif data["content"]:
         lines.append("## Transcript")
@@ -254,6 +404,101 @@ async def transcript_md(node_id: str):
 
     md = "\n".join(lines).strip() + "\n"
     return PlainTextResponse(md, media_type="text/plain; charset=utf-8")
+
+
+@app.get("/yt/{video_id}", response_class=HTMLResponse)
+@app.get("/yt/{video_id}/{slug}", response_class=HTMLResponse)
+async def public_youtube_transcript(video_id: str, slug: str = ""):
+    """Public, usetranscribe.io-style transcript page keyed by YouTube video_id
+    (publicly known — the video itself is already public, so this is intentionally
+    enumerable). Tacit is multi-tenant, so a video_id can map to multiple nodes
+    across users; resolves to the newest completed ingestion of that video — a
+    valid transcript of the video, not necessarily "your" ingestion of it."""
+    from .db.database import get_database, NodeDB
+
+    db = get_database()
+
+    def _get(session):
+        # node_meta is a JSON blob; JSON-path filtering isn't portable between
+        # SQLite and Postgres, so pre-filter candidates with a plain substring
+        # match on the (indexed-searchable) url column, then confirm the exact
+        # video_id in Python.
+        candidates = (
+            session.query(NodeDB)
+            .filter(NodeDB.type == "youtube", NodeDB.status == "done", NodeDB.url.contains(video_id))
+            .order_by(NodeDB.created_at.desc())
+            .all()
+        )
+        for node in candidates:
+            if (node.node_meta or {}).get("video_id") == video_id:
+                return {
+                    "title": node.title,
+                    "url": node.url,
+                    "summary": node.summary,
+                    "content": node.content,
+                    "thumbnail_url": node.thumbnail_url,
+                    "meta": node.node_meta or {},
+                }
+        return None
+
+    try:
+        data = db.run_with_retry(_get)
+    except Exception as e:
+        logger.error("public_youtube_transcript_db_error", video_id=video_id, error=str(e))
+        return HTMLResponse(
+            "<h1 style='font-family:sans-serif;padding:40px'>Temporary error — please try again.</h1>",
+            status_code=503,
+        )
+
+    if not data:
+        return HTMLResponse(
+            "<h1 style='font-family:sans-serif;padding:40px'>This transcript does not exist.</h1>",
+            status_code=404,
+        )
+
+    canonical_url = f"https://www.trytacit.app/yt/{video_id}/{_slugify(data['title'])}"
+    return HTMLResponse(build_transcript_html(data, canonical_url))
+
+
+@app.get("/s/{node_id}", response_class=HTMLResponse)
+@app.get("/s/{node_id}/{slug}", response_class=HTMLResponse)
+async def public_node_transcript(node_id: str, slug: str = ""):
+    """Public transcript page for non-YouTube nodes (TikTok/Instagram/web pages),
+    keyed by the unguessable node UUID — same privacy model as /t/{node_id}."""
+    from .db.database import get_database, NodeDB
+
+    db = get_database()
+
+    def _get(session):
+        node = session.query(NodeDB).filter_by(id=node_id).first()
+        if not node:
+            return None
+        return {
+            "title": node.title,
+            "url": node.url,
+            "summary": node.summary,
+            "content": node.content,
+            "thumbnail_url": node.thumbnail_url,
+            "meta": node.node_meta or {},
+        }
+
+    try:
+        data = db.run_with_retry(_get)
+    except Exception as e:
+        logger.error("public_node_transcript_db_error", node_id=node_id, error=str(e))
+        return HTMLResponse(
+            "<h1 style='font-family:sans-serif;padding:40px'>Temporary error — please try again.</h1>",
+            status_code=503,
+        )
+
+    if not data:
+        return HTMLResponse(
+            "<h1 style='font-family:sans-serif;padding:40px'>This transcript does not exist.</h1>",
+            status_code=404,
+        )
+
+    canonical_url = f"https://www.trytacit.app/s/{node_id}/{_slugify(data['title'])}"
+    return HTMLResponse(build_transcript_html(data, canonical_url))
 
 
 @app.get("/", response_class=HTMLResponse)

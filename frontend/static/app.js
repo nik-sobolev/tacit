@@ -985,7 +985,7 @@ async function openDetail(nodeId) {
             <div class="detail-actions">
                 <button class="detail-action-btn" onclick="copyTranscriptText('${node.id}', this)" title="Copy to clipboard">Copy</button>
                 <button class="detail-action-btn" onclick="downloadTranscriptMd('${node.id}')" title="Open as markdown page">.md</button>
-                <button class="detail-action-btn" onclick="shareTranscript('${node.id}', this)" title="Copy transcript URL">Share</button>
+                <button class="detail-action-btn" onclick="openSharePopover('${node.id}', this)" title="Share to social media">Share</button>
             </div>` : '';
 
         content.innerHTML = `
@@ -1157,14 +1157,108 @@ function downloadTranscriptMd(nodeId) {
     }
 }
 
-function shareTranscript(nodeId, btn) {
-    const transcriptUrl = `${window.location.origin}/t/${nodeId}`;
-    _copyToClipboard(transcriptUrl).then(() => {
-        _flashCopied(btn, 'Share');
-        showToast('Share link copied to clipboard', 'info');
-    }).catch(() => {
-        showToast('Copy failed — your browser blocked clipboard access', 'error');
+// URL-friendly slug for the pretty share URLs (/yt/{id}/{slug}, /s/{id}/{slug}).
+// Mirrors _slugify() in backend/app/main.py — decorative only, routes resolve by id.
+function _slugify(title) {
+    return (title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'video';
+}
+
+// Public share URL for a node: YouTube videos get the pretty /yt/{video_id}/{slug}
+// page; everything else (TikTok/Instagram/web) gets /s/{node.id}/{slug}.
+function buildPublicShareUrl(node) {
+    const meta = node.metadata || {};
+    const slug = _slugify(node.title);
+    const path = (node.type === 'youtube' && meta.video_id)
+        ? `/yt/${meta.video_id}/${slug}`
+        : `/s/${node.id}/${slug}`;
+    return `${window.location.origin}${path}`;
+}
+
+// Anchored share popover: native mobile share sheet (when available), social
+// network share intents, and copy link. Replaces the old shareTranscript(),
+// which just copied the raw markdown /t/ link — this shares the real public
+// HTML transcript page instead. Only one popover open at a time; closes on
+// outside click or Escape.
+function openSharePopover(nodeId, btn) {
+    document.querySelector('.share-popover')?.remove();
+
+    const node = _getDetailNode(nodeId);
+    if (!node) {
+        showToast('Could not find this node — try reopening it', 'error');
+        return;
+    }
+
+    const url = buildPublicShareUrl(node);
+    const title = node.title || 'Untitled';
+
+    const networks = [
+        { name: 'X', label: 'X', href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(title)}&url=${encodeURIComponent(url)}` },
+        { name: 'LinkedIn', label: 'in', href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}` },
+        { name: 'Facebook', label: 'f', href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}` },
+        { name: 'WhatsApp', label: 'WA', href: `https://wa.me/?text=${encodeURIComponent(title + ' ' + url)}` },
+        { name: 'Reddit', label: 'r/', href: `https://www.reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}` },
+    ];
+
+    const popover = document.createElement('div');
+    popover.className = 'share-popover';
+    popover.innerHTML = `
+        ${navigator.share ? `<button class="share-popover-item share-popover-native" data-action="native" type="button">
+            <span class="share-popover-icon">&#8599;</span> Share…
+        </button>` : ''}
+        ${networks.map(n => `
+            <a class="share-popover-item" href="${n.href}" target="_blank" rel="noopener" title="Share on ${escapeHtml(n.name)}">
+                <span class="share-popover-icon">${escapeHtml(n.label)}</span> ${escapeHtml(n.name)}
+            </a>
+        `).join('')}
+        <button class="share-popover-item" data-action="copy" type="button">
+            <span class="share-popover-icon">&#10697;</span> Copy link
+        </button>
+    `;
+    document.body.appendChild(popover);
+
+    // Anchor to the clicked button, flipping left if it would overflow the viewport.
+    const rect = btn.getBoundingClientRect();
+    const popRect = popover.getBoundingClientRect();
+    let left = rect.left + window.scrollX;
+    if (left + popRect.width > window.innerWidth - 8) {
+        left = Math.max(8, window.innerWidth - popRect.width - 8);
+    }
+    popover.style.top = `${rect.bottom + 6 + window.scrollY}px`;
+    popover.style.left = `${left}px`;
+
+    popover.querySelector('[data-action="native"]')?.addEventListener('click', () => {
+        navigator.share({ title, url }).catch(() => {});
+        popover.remove();
     });
+    popover.querySelector('[data-action="copy"]').addEventListener('click', () => {
+        _copyToClipboard(url).then(() => {
+            showToast('Link copied to clipboard', 'info');
+            popover.remove();
+        }).catch(() => {
+            showToast('Copy failed — your browser blocked clipboard access', 'error');
+        });
+    });
+
+    const closeOnOutside = (e) => {
+        if (!popover.contains(e.target) && e.target !== btn) {
+            popover.remove();
+            document.removeEventListener('click', closeOnOutside, true);
+            document.removeEventListener('keydown', closeOnEscape);
+        }
+    };
+    const closeOnEscape = (e) => {
+        if (e.key === 'Escape') {
+            popover.remove();
+            document.removeEventListener('click', closeOnOutside, true);
+            document.removeEventListener('keydown', closeOnEscape);
+        }
+    };
+    // Deferred so the click that opened the popover (still bubbling) doesn't
+    // immediately trigger closeOnOutside.
+    setTimeout(() => {
+        document.addEventListener('click', closeOnOutside, true);
+        document.addEventListener('keydown', closeOnEscape);
+    }, 0);
 }
 
 async function deleteNode(nodeId, cardEl) {
