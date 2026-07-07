@@ -685,6 +685,16 @@ class IngestionService:
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             })
             response.raise_for_status()
+
+            # Binary content (PDFs, images, etc.) decoded as text produces
+            # garbage — including raw NUL bytes that Postgres rejects outright
+            # in text columns, crashing the whole request. Detect it up front
+            # via the content-type header or the PDF magic bytes and fail
+            # cleanly instead of feeding binary data through an HTML parser.
+            content_type_header = response.headers.get("content-type", "").lower()
+            if "application/pdf" in content_type_header or response.content[:5] == b"%PDF-":
+                raise ValueError("PDF content is not yet supported for extraction")
+
             html = response.text
 
             # Extract main content with trafilatura

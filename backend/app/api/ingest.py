@@ -2,12 +2,20 @@
 
 import asyncio
 import structlog
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 
 from ..db.database import get_database, NodeDB
 from ..core.auth import get_current_user
+
+# process_node() runs in a background thread with no persistence or resume —
+# a server restart (e.g. a deploy) mid-processing orphans the node forever at
+# status="processing" with no processed_at. Normal processing finishes in
+# well under a minute, so treat anything still "processing" past this as
+# stuck rather than genuinely in flight.
+STUCK_PROCESSING_AFTER = timedelta(minutes=5)
 
 _UNSUPPORTED_HOSTS = {"x.com", "twitter.com", "t.co"}
 
@@ -38,7 +46,17 @@ async def ingest_url(request: Request, body: IngestRequest, current_user: dict =
     with db.session_scope() as dup_session:
         existing = dup_session.query(NodeDB).filter_by(url=body.url, user_id=user_id).first()
         if existing:
-            is_failed = existing.status == "error" or (existing.title and "Content Unavailable" in existing.title)
+            stuck_processing = (
+                existing.status == "processing"
+                and not existing.processed_at
+                and existing.created_at
+                and (datetime.utcnow() - existing.created_at) > STUCK_PROCESSING_AFTER
+            )
+            is_failed = (
+                existing.status == "error"
+                or (existing.title and "Content Unavailable" in existing.title)
+                or stuck_processing
+            )
             if not is_failed:
                 return {
                     "node_id": existing.id,

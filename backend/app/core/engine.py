@@ -1180,10 +1180,25 @@ The user is looking for specific information from their knowledge base.
             canvas_y = 300.0 + random.uniform(-100, 100)
 
             try:
-                node = self.ingestion_service.ingest_url(url=url, canvas_x=canvas_x, canvas_y=canvas_y)
+                node = self.ingestion_service.ingest_url(
+                    url=url, canvas_x=canvas_x, canvas_y=canvas_y, user_id=self._current_user_id
+                )
             except Exception as e:
                 logger.error("ingest_url_tool_error", url=url, error=str(e))
                 return {"error": f"Failed to start ingestion: {e}"}
+
+            # Schedule the AI summarization pass (title/summary/key_points/tags)
+            # right here, at node-creation time -- not deferred until after this
+            # whole chat response finishes (the old behavior, in chat.py's
+            # send_message route). Deferring it meant any failure later in the
+            # same request (e.g. persisting the assistant reply) left the node
+            # stuck forever with only a placeholder title and raw extracted
+            # content -- no summary, no key points, since that scheduling code
+            # was never reached.
+            if self.graph_service:
+                threading.Thread(
+                    target=self.graph_service.process_node, args=(node.id,), daemon=True
+                ).start()
 
             actions.append({
                 "type": "ingest_started",

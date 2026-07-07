@@ -1,6 +1,5 @@
 """Chat API endpoints"""
 
-import asyncio
 import threading
 import uuid as _uuid
 from datetime import datetime as _datetime
@@ -125,14 +124,9 @@ async def send_message(
             user_email=current_user.get("email", ""),
         )
 
-        # Kick off background graph processing for any URLs ingested via chat
-        graph_service = request.app.state.graph_service
-        for action in result.get('actions', []):
-            if action.get('type') == 'ingest_started':
-                node_id = action['node_id']
-                asyncio.get_event_loop().run_in_executor(
-                    None, graph_service.process_node, node_id
-                )
+        # Note: graph_service.process_node() for any URL ingested via chat is
+        # scheduled immediately inside the ingest_url tool call itself
+        # (engine.py), not deferred to here — see the comment there for why.
 
         return ChatResponse(
             response=result['response'],
