@@ -177,8 +177,7 @@
         const redirectUrl = params.get('redirect_url') || '/app';
 
         window.Clerk.mountSignIn(document.getElementById('clerk-sign-in'), {
-            routing: 'path',
-            path: '/sign-in',
+            routing: 'virtual',
             afterSignInUrl: redirectUrl,
             afterSignUpUrl: redirectUrl,
         });
