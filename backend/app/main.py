@@ -465,7 +465,7 @@ h2{{font-family:'Newsreader',serif;font-size:18px;margin:32px 0 12px;}}
 .tc-key-points li{{margin-bottom:6px;}}
 .tc-para{{margin:0 0 16px;color:var(--text-secondary);}}
 .tc-ts{{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--primary);text-decoration:none;margin-right:8px;}}
-.tc-share{{display:flex;flex-wrap:wrap;gap:8px;margin:32px 0;padding:16px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}}
+.tc-share{{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 28px;padding:16px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}}
 .tc-share-btn{{font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px 12px;text-decoration:none;}}
 .tc-share-btn:hover{{border-color:var(--primary);color:var(--primary);}}
 .tc-cta{{text-align:center;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-secondary);margin-top:40px;}}
@@ -479,10 +479,10 @@ h2{{font-family:'Newsreader',serif;font-size:18px;margin:32px 0 12px;}}
 {media_html}
 <h1>{title}</h1>
 <div class="tc-meta">{uploader_line}{source_line}</div>
+<div class="tc-share">{share_html}</div>
 {f'<h2>Summary</h2><p class="tc-para">{summary}</p>' if summary else ''}
 {f'<h2>Key Points</h2>{key_points_html}' if key_points_html else ''}
 {f'<h2>Transcript</h2>{transcript_html}' if transcript_html else ''}
-<div class="tc-share">{share_html}</div>
 <div class="tc-cta">Transcribed with <a href="https://www.trytacit.app">Tacit</a></div>
 <div class="tc-agents"><a href="{md_url_esc}">View as markdown</a> · <a href="/AGENTS.md">For AI agents</a></div>
 </div>
