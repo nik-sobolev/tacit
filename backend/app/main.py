@@ -715,9 +715,11 @@ async def sign_in(rest: str = ""):
 @app.get("/sign-up", response_class=HTMLResponse)
 @app.get("/sign-up/{rest:path}", response_class=HTMLResponse)
 async def sign_up(rest: str = ""):
-    """Redirect all /sign-up routes to /sign-in — Clerk handles sign-up inline"""
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse('/sign-in', status_code=301)
+    """Serve branded Clerk sign-up — catches all sub-routes (verify, continue, etc.)"""
+    html_file = frontend_path / "sign-up.html"
+    if html_file.exists():
+        return html_file.read_text()
+    return HTMLResponse('<script>window.location="/sign-in"</script>')
 
 
 @app.get("/api/health")

@@ -49,7 +49,7 @@ async function initAuth() {
         if (!window.Clerk) throw new Error('Clerk JS failed to load from clerk.trytacit.app');
         await window.Clerk.load({
             signInUrl: '/sign-in',
-            signUpUrl: '/sign-in',
+            signUpUrl: '/sign-up',
             afterSignOutUrl: '/sign-in',
             appearance: {
                 variables: {

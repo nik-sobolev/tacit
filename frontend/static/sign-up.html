@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign in — Tacit</title>
+    <title>Start your canvas — Tacit</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -60,7 +60,7 @@
         }
 
         /* Clerk mount container */
-        #clerk-sign-in {
+        #clerk-sign-up {
             position: relative;
             z-index: 1;
             width: 100%;
@@ -76,7 +76,7 @@
         <span class="brand-name">TACIT</span>
     </a>
 
-    <div id="clerk-sign-in"></div>
+    <div id="clerk-sign-up"></div>
 
     <script>
     const tacitAppearance = {
@@ -176,10 +176,10 @@
         const params = new URLSearchParams(window.location.search);
         const redirectUrl = params.get('redirect_url') || '/app';
 
-        window.Clerk.mountSignIn(document.getElementById('clerk-sign-in'), {
+        window.Clerk.mountSignUp(document.getElementById('clerk-sign-up'), {
             routing: 'path',
-            path: '/sign-in',
-            signUpUrl: '/sign-up',
+            path: '/sign-up',
+            signInUrl: '/sign-in',
             afterSignInUrl: redirectUrl,
             afterSignUpUrl: redirectUrl,
         });
