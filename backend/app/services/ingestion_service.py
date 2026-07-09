@@ -662,7 +662,12 @@ class IngestionService:
             # there's no video transcript either — try rendering the page directly.
             fallback_error = None
             try:
-                page = self._extract_webpage_browser(url, use_proxy=True)
+                # use_proxy=False: unlike yt-dlp/httpx, routing Playwright's browser
+                # through the Webshare residential proxy hangs badly in production
+                # (proxy handshake at the Chromium level, not a simple HTTP request).
+                # No evidence yet that x.com blocks plain browser traffic the way it
+                # blocks scraper/API traffic, so go direct here.
+                page = self._extract_webpage_browser(url, use_proxy=False)
                 page_text = (page.get("content") or "") + " " + (page.get("title") or "")
                 is_x_error_page = any(marker in page_text for marker in (
                     "Post Not Found", "This page doesn’t exist", "This page doesn't exist",
