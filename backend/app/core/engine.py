@@ -12,7 +12,7 @@ from anthropic import Anthropic, APIStatusError
 from .config import TacitConfig
 from ..services.vector_service import VectorService
 from ..models.chat import ChatMode
-from ..db.database import get_database, ConversationDB, MessageDB, NodeDB, EdgeDB, PersonDB
+from ..db.database import get_database, ConversationDB, MessageDB, NodeDB, EdgeDB, PersonDB, ContextDB, DocumentDB
 
 logger = structlog.get_logger()
 
@@ -513,6 +513,46 @@ class TacitEngine:
             # Vector search already ranks by similarity so top results are most relevant.
             # For temporal queries, also include recent nodes sorted by date.
             relevant_nodes = results.get("nodes", [])
+
+            # ChromaDB has no per-tenant isolation — search_all() queries across every
+            # user's embeddings, so results here can include other users' private nodes,
+            # contexts, and document chunks. Re-verify ownership against SQL (source of
+            # truth for user_id) before any of this reaches the prompt. Treat a missing
+            # user_id as "owns nothing" rather than skipping the check.
+            owned_node_ids, owned_context_ids, owned_document_ids = set(), set(), set()
+            if user_id:
+                node_ids = {n["id"] for n in relevant_nodes}
+                context_ids = {c["id"] for c in relevant_contexts}
+                document_ids = {
+                    d["metadata"].get("document_id")
+                    for d in relevant_documents
+                    if d["metadata"].get("document_id")
+                }
+                session = self.db.get_session()
+                try:
+                    if node_ids:
+                        owned_node_ids = {
+                            r.id for r in session.query(NodeDB.id)
+                            .filter(NodeDB.id.in_(node_ids), NodeDB.user_id == user_id).all()
+                        }
+                    if context_ids:
+                        owned_context_ids = {
+                            r.id for r in session.query(ContextDB.id)
+                            .filter(ContextDB.id.in_(context_ids), ContextDB.user_id == user_id).all()
+                        }
+                    if document_ids:
+                        owned_document_ids = {
+                            r.id for r in session.query(DocumentDB.id)
+                            .filter(DocumentDB.id.in_(document_ids), DocumentDB.user_id == user_id).all()
+                        }
+                finally:
+                    session.close()
+            relevant_nodes = [n for n in relevant_nodes if n["id"] in owned_node_ids]
+            relevant_contexts = [c for c in relevant_contexts if c["id"] in owned_context_ids]
+            relevant_documents = [
+                d for d in relevant_documents
+                if d["metadata"].get("document_id") in owned_document_ids
+            ]
 
             if self._is_temporal_query(query):
                 recent_nodes = self._get_recent_nodes(limit=10, user_id=user_id)
