@@ -46,11 +46,17 @@ class TacitConfig(BaseModel):
 
     # API Keys
     anthropic_api_key: str = Field(default="")
+    gemini_api_key: str = Field(default="")
 
     # Model Configuration
     default_model: str = "claude-sonnet-4-6"
     max_tokens: int = 2000
     temperature: float = 0.7
+
+    # Node enrichment (title/summary/key_points) provider — separate from the chat
+    # model above. "gemini" is free/cheap and good enough for structured extraction;
+    # flip to "claude" via env var if Gemini quality or availability ever regresses.
+    summarization_provider: str = "gemini"
 
     # Database Configuration
     database_url: str = _DEFAULT_DB_URL
@@ -86,6 +92,8 @@ class TacitConfig(BaseModel):
             user_role=os.getenv("USER_ROLE", "Executive"),
             user_organization=os.getenv("USER_ORGANIZATION", "Organization"),
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+            gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
+            summarization_provider=os.getenv("SUMMARIZATION_PROVIDER", "gemini"),
             database_url=_normalize_db_url(os.getenv("DATABASE_URL", _DEFAULT_DB_URL)),
             chroma_persist_dir=_normalize_path(os.getenv("CHROMA_PERSIST_DIR", _DEFAULT_CHROMA_DIR)),
             host=os.getenv("HOST", "127.0.0.1"),

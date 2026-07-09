@@ -4,6 +4,7 @@ import re
 import uuid
 import json
 import structlog
+import httpx
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
@@ -14,15 +15,29 @@ from .vector_service import VectorService
 
 logger = structlog.get_logger()
 
+GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+
 
 class GraphService:
     """Manages the knowledge graph: Claude agent processing and node relationships."""
 
-    def __init__(self, vector_service: VectorService, client: Anthropic, model: str):
+    def __init__(
+        self,
+        vector_service: VectorService,
+        client: Anthropic,
+        model: str,
+        gemini_api_key: str = "",
+        summarization_provider: str = "gemini",
+    ):
         self.db = get_database()
         self.vector_service = vector_service
         self.client = client
         self.model = model
+        self.gemini_api_key = gemini_api_key
+        # Falls back to Claude if Gemini isn't configured, regardless of the setting —
+        # so an unset GEMINI_API_KEY can't silently break node enrichment.
+        self.summarization_provider = summarization_provider if gemini_api_key else "claude"
 
     # ==================== AGENT PROCESSING ====================
 
@@ -141,7 +156,13 @@ class GraphService:
         return sorted(categories)
 
     def _run_agent(self, node: NodeDB, existing_summary: str, existing_categories: List[str] = None) -> Dict[str, Any]:
-        """Call Claude with structured extraction prompt."""
+        """Run the structured-extraction prompt against the configured provider."""
+        prompt = self._build_agent_prompt(node, existing_summary, existing_categories)
+        if self.summarization_provider == "gemini":
+            return self._call_gemini(prompt)
+        return self._call_claude(prompt, node)
+
+    def _build_agent_prompt(self, node: NodeDB, existing_summary: str, existing_categories: List[str] = None) -> str:
         content_preview = (node.content or "")[:6000]
         existing_section = f"\n\nEXISTING NODES IN KNOWLEDGE GRAPH:\n{existing_summary}" if existing_summary else ""
         categories_hint = ""
@@ -185,11 +206,21 @@ Rules:
 - key_entities: people, organizations, technologies, concepts mentioned
 - connections: only include if there are genuinely related existing nodes (strength 0.6-1.0)
 - Return ONLY the JSON object, no other text"""
+        return prompt
 
+    @staticmethod
+    def _parse_json_response(text: str) -> Dict[str, Any]:
+        text = text.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\n?", "", text)
+            text = re.sub(r"\n?```$", "", text)
+        return json.loads(text)
+
+    def _call_claude(self, prompt: str, node: NodeDB) -> Dict[str, Any]:
         try:
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=1000,
+                max_tokens=2000,
                 messages=[{"role": "user", "content": prompt}]
             )
             text = response.content[0].text.strip()
@@ -199,14 +230,42 @@ Rules:
                 from ..core.usage import record_usage
                 record_usage(node.user_id, response.usage.input_tokens, response.usage.output_tokens)
 
-            # Strip markdown code blocks if present
-            if text.startswith("```"):
-                text = re.sub(r"^```(?:json)?\n?", "", text)
-                text = re.sub(r"\n?```$", "", text)
-            return json.loads(text)
+            return self._parse_json_response(text)
         except Exception as e:
-            logger.error("agent_call_error", error=str(e))
-            return {"title": node.title, "summary": "", "tags": [], "key_entities": [], "connections": []}
+            # Do NOT swallow this into a fake-success fallback -- that previously let
+            # process_node mark status="done" with an empty summary/no key_points and
+            # no error anywhere, on ANY agent failure (truncated JSON, API error,
+            # refusal). Re-raise so process_node's own except (which sets
+            # status="error" + error_message) actually runs, making the failure visible
+            # and letting it fall into the existing stuck/failed-node retry path.
+            logger.error("agent_call_error", provider="claude", error=str(e))
+            raise
+
+    def _call_gemini(self, prompt: str) -> Dict[str, Any]:
+        try:
+            response = httpx.post(
+                GEMINI_URL,
+                params={"key": self.gemini_api_key},
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"maxOutputTokens": 3000},
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            candidates = data.get("candidates") or []
+            if not candidates:
+                raise ValueError(f"Gemini returned no candidates: {json.dumps(data)[:300]}")
+            parts = candidates[0].get("content", {}).get("parts", [])
+            text = "".join(p.get("text", "") for p in parts)
+            return self._parse_json_response(text)
+        except Exception as e:
+            # Same reasoning as _call_claude: let this propagate to process_node's
+            # except so a Gemini failure marks the node status="error" instead of
+            # silently completing with an empty summary.
+            logger.error("agent_call_error", provider="gemini", error=str(e))
+            raise
 
     def _create_agent_edges(self, node_id: str, connections: List[Dict], session) -> None:
         """Create edges from Claude agent's suggested connections."""

@@ -64,6 +64,8 @@ graph_service = GraphService(
     vector_service=engine.vector_service,
     client=engine.client,
     model=config.default_model,
+    gemini_api_key=config.gemini_api_key,
+    summarization_provider=config.summarization_provider,
 )
 engine.graph_service = graph_service
 engine.ingestion_service = ingestion_service
