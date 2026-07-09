@@ -660,6 +660,20 @@ class IngestionService:
             # oEmbed gave no real body text (media-only tweet with no video we
             # could find, or an unsupported content type like an X Article) and
             # there's no video transcript either — try rendering the page directly.
+            #
+            # Gated behind TWEET_PLAYWRIGHT_FALLBACK (default off): launching
+            # Chromium here appears to OOM-crash the production instance (Render
+            # has a known memory ceiling — see the earlier "Render OOM crash loop"
+            # fix). Verified working locally; disabled in prod until memory usage
+            # is confirmed safe. Without this fallback, these tweets (X Articles,
+            # protected accounts, media-only posts with no video) fail cleanly
+            # with status="error" instead of crashing the app.
+            if os.getenv("TWEET_PLAYWRIGHT_FALLBACK", "").lower() not in ("1", "true", "yes"):
+                raise ValueError(
+                    f"Could not extract text content for tweet {url} "
+                    "(oEmbed had no body text, no video found; browser fallback disabled)"
+                )
+
             fallback_error = None
             try:
                 # use_proxy=False: unlike yt-dlp/httpx, routing Playwright's browser
