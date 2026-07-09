@@ -17,8 +17,6 @@ from ..core.auth import get_current_user
 # stuck rather than genuinely in flight.
 STUCK_PROCESSING_AFTER = timedelta(minutes=5)
 
-_UNSUPPORTED_HOSTS = {"x.com", "twitter.com", "t.co"}
-
 logger = structlog.get_logger()
 router = APIRouter()
 

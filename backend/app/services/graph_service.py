@@ -50,6 +50,9 @@ class GraphService:
                 if not node:
                     logger.error("process_node_not_found", node_id=node_id)
                     return
+                if node.status == "error":
+                    logger.info("process_node_skip_errored_node", node_id=node_id)
+                    return
 
                 # Get existing nodes for context (before adding this one to vector DB)
                 existing = self.vector_service.search_nodes(node.content[:2000] if node.content else node.title or "", limit=5)

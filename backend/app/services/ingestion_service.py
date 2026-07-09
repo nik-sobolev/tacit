@@ -513,6 +513,21 @@ class IngestionService:
             logger.warning("tiktok_cookie_load_failed", error=str(e))
             return {}
 
+    def _x_cookies_opts(self) -> dict:
+        """Return cookiefile option if X_COOKIES_B64 env var is set (Netscape format)."""
+        import base64
+        cookies_b64 = os.getenv("X_COOKIES_B64", "")
+        if not cookies_b64:
+            return {}
+        try:
+            cookie_path = os.path.join(tempfile.gettempdir(), "x_cookies.txt")
+            with open(cookie_path, "wb") as f:
+                f.write(base64.b64decode(cookies_b64))
+            return {"cookiefile": cookie_path}
+        except Exception as e:
+            logger.warning("x_cookie_load_failed", error=str(e))
+            return {}
+
     def _get_yt_dlp_retries(self) -> int:
         """Get number of retry attempts for yt-dlp operations from environment variable."""
         try:
@@ -625,11 +640,76 @@ class IngestionService:
     # ==================== TWITTER / X ====================
 
     def _extract_tweet(self, url: str) -> Dict[str, Any]:
-        """Extract tweet content via Twitter oEmbed API (no auth required)."""
+        """Extract tweet content: oEmbed text + yt-dlp/whisper video transcript when present.
+
+        oEmbed and video are independent sources (most tweets have no video, some
+        have video with no caption text) so they're merged rather than treated as
+        a fallback chain. Raises if nothing usable comes back from any path, so
+        ingest_url() marks the node status="error" instead of letting an empty
+        node reach LLM enrichment (which previously fabricated a plausible-looking
+        title from nothing).
+        """
+        oembed = self._extract_tweet_oembed(url)
+        transcript_text, transcript_segments, video_meta = self._extract_tweet_video(url)
+
+        author = oembed.get("author", "")
+        handle = oembed.get("handle", "")
+        text = oembed.get("text", "")
+
+        if not text and not transcript_text:
+            # oEmbed gave no real body text (media-only tweet with no video we
+            # could find, or an unsupported content type like an X Article) and
+            # there's no video transcript either — try rendering the page directly.
+            try:
+                page = self._extract_webpage_browser(url, use_proxy=True)
+                page_text = (page.get("content") or "") + " " + (page.get("title") or "")
+                is_x_error_page = any(marker in page_text for marker in (
+                    "Post Not Found", "This page doesn’t exist", "This page doesn't exist",
+                    "We're unable to show this content", "content may be private, deleted",
+                ))
+                if page.get("content") and len(page["content"].strip()) >= 20 and not is_x_error_page:
+                    page["metadata"] = {
+                        **page.get("metadata", {}),
+                        "provider": "playwright_fallback",
+                        "tweet_url": url,
+                        "author": author,
+                        "handle": handle,
+                    }
+                    # Prefer oEmbed's profile picture over the generic site favicon
+                    page["thumbnail_url"] = oembed.get("thumbnail_url") or page.get("thumbnail_url")
+                    return page
+            except Exception as e:
+                logger.warning("tweet_browser_fallback_failed", url=url, error=str(e))
+            raise ValueError(f"Could not extract any real content for tweet {url}")
+
+        content_parts = [p for p in (text, transcript_text) if p]
+        content = "\n\n".join(content_parts) if content_parts else (text or transcript_text)
+
+        title = oembed.get("title") or (f"Tweet by {author}" if author else f"Tweet: {url}")
+        thumbnail_url = video_meta.get("thumbnail") or oembed.get("thumbnail_url")
+
+        meta: Dict[str, Any] = {"tweet_url": url, "author": author, "handle": handle}
+        if video_meta.get("duration"):
+            meta["duration"] = video_meta["duration"]
+            meta["has_video"] = True
+        if transcript_segments:
+            meta["transcript_segments"] = transcript_segments
+
+        return {
+            "title": title[:400],
+            "content": content,
+            "thumbnail_url": thumbnail_url,
+            "metadata": meta,
+        }
+
+    def _extract_tweet_oembed(self, url: str) -> Dict[str, Any]:
+        """Fetch tweet author/text via the public oEmbed endpoint. Returns {} on any failure
+        (never raises) — the caller decides what "no oEmbed data" means."""
         import re as _re
         try:
             oembed_url = f"https://publish.twitter.com/oembed?url={url}&omit_script=true"
-            with httpx.Client(timeout=10, follow_redirects=True) as client:
+            proxy = self._proxy_url() or None
+            with httpx.Client(timeout=10, follow_redirects=True, proxy=proxy) as client:
                 resp = client.get(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
                 resp.raise_for_status()
                 data = resp.json()
@@ -637,36 +717,95 @@ class IngestionService:
             author = data.get("author_name", "")
             html = data.get("html", "")
 
-            # Extract plain text from blockquote HTML
-            text = _re.sub(r"<a[^>]*>.*?</a>", "", html, flags=_re.DOTALL)
-            text = _re.sub(r"<[^>]+>", "", text).strip()
-            text = _re.sub(r"\s+", " ", text)
+            # Real tweet body lives inside <p>...</p>. Media-only tweets (no
+            # caption) and unsupported content like X Articles leave oEmbed
+            # with just the "— Name (@handle)" attribution and no <p> — that's
+            # not real content, so don't count it as extracted text.
+            body_match = _re.search(r"<p[^>]*>(.*?)</p>", html, _re.DOTALL)
+            if body_match:
+                text = _re.sub(r"<a[^>]*>.*?</a>", "", body_match.group(1), flags=_re.DOTALL)
+                text = _re.sub(r"<[^>]+>", "", text).strip()
+                text = _re.sub(r"\s+", " ", text)
+            else:
+                text = ""
 
             # Extract handle from author_url
             author_url = data.get("author_url", "")
             handle = author_url.rstrip("/").split("/")[-1] if author_url else ""
             handle_str = f"@{handle}" if handle else ""
 
-            title = f"{author} {handle_str}: {text[:120]}" if text else f"Tweet by {author}"
+            title = f"{author} {handle_str}: {text[:120]}" if text else (f"Tweet by {author}" if author else "")
 
             return {
-                "title": title[:400],
-                "content": text,
+                "title": title[:400] if title else "",
+                "text": text,
+                "author": author,
+                "handle": handle,
                 "thumbnail_url": f"https://unavatar.io/twitter/{handle}" if handle else None,
-                "metadata": {
-                    "author": author,
-                    "handle": handle,
-                    "tweet_url": url,
-                },
             }
         except Exception as e:
             logger.warning("tweet_oembed_failed", url=url, error=str(e))
-            return {
-                "title": f"Tweet: {url}",
-                "content": "",
-                "thumbnail_url": None,
-                "metadata": {"tweet_url": url},
-            }
+            return {}
+
+    def _extract_tweet_video(self, url: str):
+        """Attempt to download + transcribe a tweet's video via yt-dlp. Never raises —
+        most tweets have no video at all, which is expected, not a failure.
+        Returns (transcript_text, transcript_segments, video_meta)."""
+        video_meta: Dict[str, Any] = {}
+        try:
+            info = self._get_video_metadata(url)
+            if info:
+                video_meta = {"thumbnail": info.get("thumbnail"), "duration": info.get("duration")}
+        except Exception as e:
+            logger.info("tweet_video_metadata_skip", url=url, error=str(e))
+
+        try:
+            import yt_dlp
+            with tempfile.TemporaryDirectory() as tmpdir:
+                audio_path = os.path.join(tmpdir, "audio.mp3")
+                ydl_opts = {
+                    "format": "bestaudio[ext=m4a]/bestaudio/best",
+                    "outtmpl": audio_path,
+                    "postprocessors": [{
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "mp3",
+                        "preferredquality": "128",
+                    }],
+                    "postprocessor_args": {"FFmpegExtractAudio": ["-ac", "1"]},
+                    "quiet": True,
+                    "no_warnings": True,
+                    **self._yt_dlp_cookies_opts(),
+                    **self._x_cookies_opts(),
+                    **self._yt_dlp_proxy_opts(),
+                }
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+
+                actual_path = None
+                for fname in os.listdir(tmpdir):
+                    if fname.startswith("audio"):
+                        actual_path = os.path.join(tmpdir, fname)
+                        break
+
+                if not actual_path or not os.path.exists(actual_path):
+                    logger.info("tweet_no_video_found", url=url)
+                    return "", [], video_meta
+
+                try:
+                    text, segments = self._transcribe(actual_path)
+                    if not text or len(text.strip()) < 10:
+                        raise ValueError("Local transcription empty or too short")
+                except Exception as e:
+                    logger.warning("tweet_local_transcription_failed", url=url, error=str(e))
+                    text, segments = self._transcribe_cloud(actual_path)
+
+                if text and len(text.strip()) >= 10:
+                    logger.info("tweet_video_transcription_ok", url=url, length=len(text))
+                    return text, segments, video_meta
+                return "", [], video_meta
+        except Exception as e:
+            logger.info("tweet_video_extraction_skip", url=url, error=str(e))
+            return "", [], video_meta
 
     # ==================== WEB PAGES ====================
 
@@ -726,16 +865,33 @@ class IngestionService:
             # Fall back to browser rendering
             return self._extract_webpage_browser(url)
 
-    def _extract_webpage_browser(self, url: str) -> Dict[str, Any]:
-        """Extract webpage content using Playwright headless browser."""
+    def _extract_webpage_browser(self, url: str, use_proxy: bool = False) -> Dict[str, Any]:
+        """Extract webpage content using Playwright headless browser.
+
+        use_proxy routes the browser through the residential proxy (same one used
+        for YouTube/yt-dlp) — for sites like x.com that block datacenter IPs.
+        Ordinary webpage rendering doesn't need this and leaves it off by default.
+        """
         parsed = urlparse(url)
         domain = parsed.netloc.replace("www.", "")
 
         try:
             from playwright.sync_api import sync_playwright
 
+            launch_kwargs = {"headless": True}
+            if use_proxy:
+                proxy_url = self._proxy_url()
+                if proxy_url:
+                    from urllib.parse import urlsplit
+                    parsed_proxy = urlsplit(proxy_url)
+                    launch_kwargs["proxy"] = {
+                        "server": f"{parsed_proxy.scheme}://{parsed_proxy.hostname}:{parsed_proxy.port}",
+                        "username": parsed_proxy.username,
+                        "password": parsed_proxy.password,
+                    }
+
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
+                browser = p.chromium.launch(**launch_kwargs)
                 page = browser.new_page(
                     user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 )

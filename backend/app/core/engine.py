@@ -957,8 +957,7 @@ The user is looking for specific information from their knowledge base.
             "description": (
                 "Add a URL to the user's canvas by ingesting it. "
                 "Call this when the user pastes a URL or asks to add/save/bookmark a link. "
-                "Do NOT call this for URLs already on the canvas. "
-                "Do NOT call this for x.com or twitter.com URLs — tell the user to use the URL bar instead."
+                "Do NOT call this for URLs already on the canvas."
             ),
             "input_schema": {
                 "type": "object",

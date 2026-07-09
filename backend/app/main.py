@@ -786,6 +786,60 @@ async def debug_youtube(video_id: str):
     return results
 
 
+@app.get("/api/debug/tweet")
+async def debug_tweet(url: str):
+    """Diagnostic: test each tweet extraction path exactly as the real pipeline does,
+    without touching the DB or LLM enrichment. Mirrors /api/debug/youtube/{video_id}.
+
+    Runs in a thread executor, not directly on the event loop — the Playwright
+    fallback path uses Playwright's sync API, which raises if called while an
+    asyncio loop is already running (same reason ingest_url() itself is always
+    dispatched via run_in_executor in ingest.py).
+    """
+    import os, asyncio, traceback
+    _webshare = bool(os.getenv("WEBSHARE_PROXY_USERNAME", "").strip() and os.getenv("WEBSHARE_PROXY_PASSWORD", "").strip())
+    results = {
+        "cookies_present": bool(os.getenv("X_COOKIES_B64")),
+        "proxy_mode": "webshare" if _webshare else ("generic" if os.getenv("YOUTUBE_PROXY_URL", "").strip() else "none"),
+    }
+
+    def _run_debug():
+        # Test 1: oEmbed (text/author)
+        try:
+            oembed = ingestion_service._extract_tweet_oembed(url)
+            results["oembed"] = {"ok": bool(oembed), "has_text": bool(oembed.get("text"))} if oembed else {"ok": False}
+        except Exception as e:
+            results["oembed"] = {"ok": False, "error": str(e)[:400], "trace": traceback.format_exc()[-400:]}
+
+        # Test 2: yt-dlp video + transcription
+        try:
+            text, segments, video_meta = ingestion_service._extract_tweet_video(url)
+            results["yt_dlp_video"] = {
+                "ok": True,
+                "has_video": bool(video_meta.get("duration")),
+                "has_transcript": bool(text),
+                "transcript_chars": len(text),
+            }
+        except Exception as e:
+            results["yt_dlp_video"] = {"ok": False, "error": str(e)[:400], "trace": traceback.format_exc()[-400:]}
+
+        # Test 3: full composed extraction (what ingest_url() actually calls)
+        try:
+            full = ingestion_service._extract_tweet(url)
+            results["full_extraction"] = {
+                "ok": True,
+                "title": full.get("title"),
+                "content_chars": len(full.get("content", "")),
+                "has_video": full.get("metadata", {}).get("has_video", False),
+            }
+        except Exception as e:
+            results["full_extraction"] = {"ok": False, "error": str(e)[:400]}
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _run_debug)
+    return results
+
+
 @app.on_event("startup")
 async def startup_event():
     """Run on application startup"""
