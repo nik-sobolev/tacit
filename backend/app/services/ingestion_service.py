@@ -660,6 +660,7 @@ class IngestionService:
             # oEmbed gave no real body text (media-only tweet with no video we
             # could find, or an unsupported content type like an X Article) and
             # there's no video transcript either — try rendering the page directly.
+            fallback_error = None
             try:
                 page = self._extract_webpage_browser(url, use_proxy=True)
                 page_text = (page.get("content") or "") + " " + (page.get("title") or "")
@@ -678,9 +679,14 @@ class IngestionService:
                     # Prefer oEmbed's profile picture over the generic site favicon
                     page["thumbnail_url"] = oembed.get("thumbnail_url") or page.get("thumbnail_url")
                     return page
+                elif is_x_error_page:
+                    fallback_error = "playwright rendered an X error/not-found page"
+                else:
+                    fallback_error = "playwright returned insufficient content"
             except Exception as e:
                 logger.warning("tweet_browser_fallback_failed", url=url, error=str(e))
-            raise ValueError(f"Could not extract any real content for tweet {url}")
+                fallback_error = str(e)
+            raise ValueError(f"Could not extract any real content for tweet {url} ({fallback_error})")
 
         content_parts = [p for p in (text, transcript_text) if p]
         content = "\n\n".join(content_parts) if content_parts else (text or transcript_text)
