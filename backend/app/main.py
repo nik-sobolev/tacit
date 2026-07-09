@@ -108,15 +108,30 @@ if frontend_path.exists():
     app.mount("/static", StaticFiles(directory=str(frontend_path)), name="static")
 
 
+# LLM crawlers (training/retrieval) that check for an explicit named block
+# before crawling, rather than falling back to "User-agent: *". Per the REP
+# spec, a crawler that finds a block matching its own name uses ONLY that
+# block — it does NOT also inherit the "*" rules — so each bot needs its own
+# copy of the same allow/disallow rules, not just to appear in a comment.
+LLM_CRAWLER_AGENTS = [
+    "GPTBot",         # OpenAI
+    "ClaudeBot",      # Anthropic — crawling
+    "anthropic-ai",   # Anthropic — training
+    "Google-Extended",  # Gemini/Bard training
+    "PerplexityBot",
+    "CCBot",          # Common Crawl — feeds many third-party LLM training sets
+]
+
+
 @app.get("/robots.txt", response_class=PlainTextResponse)
 async def robots_txt():
     """Allow crawling of the landing page and public /yt transcript pages (our
     usetranscribe.io-style SEO surface). /s/{node_id} and /t/{node_id} are
     unguessable-by-design private share links (see public_node_transcript /
     transcript_md docstrings) and must stay out of robots/sitemap so we don't
-    publish an index of them."""
-    lines = [
-        "User-agent: *",
+    publish an index of them. Named LLM crawler blocks (LLM_CRAWLER_AGENTS)
+    get the identical rule set — see that constant's docstring for why."""
+    rule_block = [
         "Allow: /yt/",
         "Disallow: /api/",
         "Disallow: /app",
@@ -127,10 +142,40 @@ async def robots_txt():
         "Disallow: /t/",
         "Disallow: /uploads/",
         "",
+    ]
+    lines = ["User-agent: *", *rule_block]
+    for agent in LLM_CRAWLER_AGENTS:
+        lines += [f"User-agent: {agent}", *rule_block]
+    lines += [
         "Sitemap: https://www.trytacit.app/sitemap.xml",
-        "# AI agents: see https://www.trytacit.app/AGENTS.md",
+        "# AI agents (API access): see https://www.trytacit.app/AGENTS.md",
+        "# LLM summary: see https://www.trytacit.app/llms.txt",
     ]
     return PlainTextResponse("\n".join(lines))
+
+
+@app.get("/llms.txt")
+async def llms_txt():
+    """llms.txt — emerging convention (llmstxt.org) for a plain-language product
+    summary aimed at LLM training/retrieval crawlers, distinct from AGENTS.md
+    (which documents the API for agents making live requests, not a training
+    corpus)."""
+    content = """# Tacit
+
+> Tacit is a personal knowledge canvas: drop in any URL — a YouTube video, article, tweet, or PDF — and it transcribes, summarizes, and connects it to everything else you've saved, so you can ask questions across everything you've read and watched.
+
+Tacit runs in the browser and installs as a PWA. Supported sources: YouTube, TikTok, articles, tweets, and PDFs. Every saved item lands on an infinite visual canvas and is automatically linked to related items already in the library, based on meaning rather than folders or tags.
+
+## Docs
+
+- [For AI agents](https://www.trytacit.app/AGENTS.md): endpoints for programmatic access to public transcript pages
+- [Sitemap](https://www.trytacit.app/sitemap.xml): public YouTube transcript pages Tacit has indexed
+
+## Examples
+
+- [Public YouTube transcripts](https://www.trytacit.app/yt/{video_id}): human-readable transcript, AI summary, and key points for a YouTube video Tacit has processed — append `?format=md` for raw markdown
+"""
+    return Response(content, media_type="text/plain")
 
 
 # Sitemaps are capped at 50k URLs per the sitemaps.org spec.
