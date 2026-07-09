@@ -6,7 +6,7 @@ import structlog
 from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from pathlib import Path
 import os
 from slowapi import Limiter
@@ -108,6 +108,118 @@ if frontend_path.exists():
     app.mount("/static", StaticFiles(directory=str(frontend_path)), name="static")
 
 
+@app.get("/robots.txt", response_class=PlainTextResponse)
+async def robots_txt():
+    """Allow crawling of the landing page and public /yt transcript pages (our
+    usetranscribe.io-style SEO surface). /s/{node_id} and /t/{node_id} are
+    unguessable-by-design private share links (see public_node_transcript /
+    transcript_md docstrings) and must stay out of robots/sitemap so we don't
+    publish an index of them."""
+    lines = [
+        "User-agent: *",
+        "Allow: /yt/",
+        "Disallow: /api/",
+        "Disallow: /app",
+        "Disallow: /sign-in",
+        "Disallow: /sign-up",
+        "Disallow: /share",
+        "Disallow: /s/",
+        "Disallow: /t/",
+        "Disallow: /uploads/",
+        "",
+        "Sitemap: https://www.trytacit.app/sitemap.xml",
+        "# AI agents: see https://www.trytacit.app/AGENTS.md",
+    ]
+    return PlainTextResponse("\n".join(lines))
+
+
+# Sitemaps are capped at 50k URLs per the sitemaps.org spec.
+SITEMAP_MAX_URLS = 50_000
+
+
+@app.get("/sitemap.xml")
+async def sitemap_xml():
+    """Dynamic sitemap: landing page plus every publicly indexable /yt transcript
+    page (one entry per distinct YouTube video_id, newest completed ingestion).
+    Capped at SITEMAP_MAX_URLS and cached for an hour — this scans the nodes
+    table on every miss, and crawlers refetch sitemaps frequently."""
+    from .db.database import get_database, NodeDB
+
+    db = get_database()
+
+    def _get(session):
+        nodes = (
+            session.query(NodeDB)
+            .filter(NodeDB.type == "youtube", NodeDB.status == "done")
+            .order_by(NodeDB.created_at.desc())
+            .limit(SITEMAP_MAX_URLS * 2)  # headroom for per-video_id dedup below
+            .all()
+        )
+        seen, entries = set(), []
+        for node in nodes:
+            video_id = (node.node_meta or {}).get("video_id")
+            if not video_id or video_id in seen:
+                continue
+            seen.add(video_id)
+            entries.append((video_id, node.title, node.processed_at or node.created_at))
+            if len(entries) >= SITEMAP_MAX_URLS:
+                break
+        return entries
+
+    try:
+        entries = db.run_with_retry(_get)
+    except Exception as e:
+        logger.error("sitemap_db_error", error=str(e))
+        entries = []
+
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+        "<url><loc>https://www.trytacit.app/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>",
+    ]
+    for video_id, title, dt in entries:
+        loc = html.escape(f"https://www.trytacit.app/yt/{video_id}/{_slugify(title)}")
+        lastmod = f"<lastmod>{dt.strftime('%Y-%m-%d')}</lastmod>" if dt else ""
+        parts.append(f"<url><loc>{loc}</loc>{lastmod}</url>")
+    parts.append("</urlset>")
+
+    return Response(
+        "\n".join(parts),
+        media_type="application/xml",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.get("/AGENTS.md")
+async def agents_md():
+    """Machine-readable API summary for AI agents/LLM crawlers — same intent as
+    usetranscribe.io's AGENTS.md. Only documents endpoints that are actually
+    public and unauthenticated; does not enumerate or link specific content
+    (that's what /sitemap.xml is for, and it deliberately excludes private
+    per-item share links — see robots_txt docstring)."""
+    content = """# Summary of Tacit (trytacit.app) for AI Agents
+
+**Service**: Drop any URL — YouTube, TikTok, articles, tweets, PDFs — into a personal knowledge canvas. Tacit transcribes it, summarizes it, and connects it to related saved content.
+
+## Public Endpoints
+
+1. **YouTube transcript, HTML** (`GET /yt/{video_id}`) — Human-readable page: title, summary, key points, full timestamped transcript with clickable links back into the video.
+
+2. **YouTube transcript, Markdown** (`GET /yt/{video_id}?format=md`) — Same content as raw markdown, no HTML/CSS. Prefer this over scraping the HTML page.
+
+3. **Sitemap** (`GET /sitemap.xml`) — Every publicly indexed YouTube transcript page, one entry per video.
+
+## Notes
+
+- Canonical host is `https://www.trytacit.app` (apex `trytacit.app` redirects to it).
+- `/yt/{video_id}` is keyed by the public YouTube video ID (from `youtube.com/watch?v={video_id}`) — the same video resolves to the same page regardless of which Tacit user ingested it, since the source video is already public.
+- No API key required; no rate limit on these read endpoints.
+- Content that is *not* derived from an already-public YouTube video — personal web saves, PDFs, tweets a user dropped into their own canvas — is served behind unguessable per-item links (`/s/{id}`, `/t/{id}`) and is intentionally not linked from this file, the sitemap, or robots.txt. Tacit does not publish an index of user-saved content.
+- Tacit is a product for humans to save and connect content, not a transcription API for third parties — there is no bulk/programmatic ingestion endpoint.
+"""
+    return Response(content, media_type="text/markdown; charset=utf-8")
+
+
 @app.post("/share", response_class=HTMLResponse)
 async def pwa_share_target(request: Request):
     """PWA share target — receives URLs shared from Android/iOS to the installed PWA."""
@@ -188,12 +300,14 @@ def _slugify(title: str) -> str:
     return s[:60] or "video"
 
 
-def build_transcript_html(data: dict, canonical_url: str) -> str:
+def build_transcript_html(data: dict, canonical_url: str, md_url: str) -> str:
     """Public, usetranscribe.io-style HTML transcript page: video/thumbnail, title,
     summary, key points, timestamped transcript, OG/Twitter meta for rich link
     previews, and a social-share row. Every dynamic field is html.escape()'d before
     interpolation — title/summary/transcript/uploader originate from YouTube
-    captions/metadata and are untrusted input (XSS guard)."""
+    captions/metadata and are untrusted input (XSS guard). md_url is this same
+    page's raw-markdown counterpart (build_transcript_md) — linked in <head> for
+    crawlers and in the footer for humans/agents, alongside /AGENTS.md."""
     from urllib.parse import quote
 
     meta = data["meta"]
@@ -211,6 +325,7 @@ def build_transcript_html(data: dict, canonical_url: str) -> str:
 
     desc_raw = (data["summary"] or "").strip()
     og_description = html.escape((desc_raw[:200] + "…") if len(desc_raw) > 200 else desc_raw)
+    md_url_esc = html.escape(md_url)
 
     if video_id:
         media_html = (
@@ -275,6 +390,7 @@ def build_transcript_html(data: dict, canonical_url: str) -> str:
 <title>{title} — Tacit</title>
 <meta name="description" content="{og_description}">
 <link rel="canonical" href="{html.escape(canonical_url)}">
+<link rel="alternate" type="text/markdown" href="{md_url_esc}">
 <meta property="og:title" content="{title}">
 <meta property="og:description" content="{og_description}">
 <meta property="og:image" content="{html.escape(thumb)}">
@@ -307,6 +423,8 @@ h2{{font-family:'Newsreader',serif;font-size:18px;margin:32px 0 12px;}}
 .tc-share-btn:hover{{border-color:var(--primary);color:var(--primary);}}
 .tc-cta{{text-align:center;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-secondary);margin-top:40px;}}
 .tc-cta a{{color:var(--primary);text-decoration:none;}}
+.tc-agents{{text-align:center;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-secondary);opacity:0.65;margin-top:8px;}}
+.tc-agents a{{color:var(--text-secondary);text-decoration:none;border-bottom:1px solid var(--border);}}
 </style>
 </head>
 <body>
@@ -319,51 +437,23 @@ h2{{font-family:'Newsreader',serif;font-size:18px;margin:32px 0 12px;}}
 {f'<h2>Transcript</h2>{transcript_html}' if transcript_html else ''}
 <div class="tc-share">{share_html}</div>
 <div class="tc-cta">Transcribed with <a href="https://www.trytacit.app">Tacit</a></div>
+<div class="tc-agents"><a href="{md_url_esc}">View as markdown</a> · <a href="/AGENTS.md">For AI agents</a></div>
 </div>
 </body>
 </html>"""
 
 
-@app.get("/t/{node_id}")
-async def transcript_md(node_id: str):
-    """Public transcript endpoint — returns raw markdown for a video node (like usetranscribe.io ?format=md).
-    Keyed by UUID node_id (unguessable). No auth required so agents and browsers can fetch directly."""
-    from fastapi.responses import PlainTextResponse
-    from .db.database import get_database, NodeDB
-
-    db = get_database()
-
-    def _get(session):
-        node = session.query(NodeDB).filter_by(id=node_id).first()
-        if not node:
-            return None
-        meta = node.node_meta or {}
-        return {
-            "title": node.title,
-            "url": node.url,
-            "summary": node.summary,
-            "content": node.content,
-            "meta": meta,
-        }
-
-    try:
-        data = db.run_with_retry(_get)
-    except Exception as e:
-        logger.error("transcript_md_db_error", node_id=node_id, error=str(e))
-        from fastapi.responses import PlainTextResponse
-        return PlainTextResponse("# Error\n\nTemporary error — please try again.", status_code=503)
-
-    if not data:
-        from fastapi.responses import PlainTextResponse
-        return PlainTextResponse("# Not Found\n\nThis transcript does not exist.", status_code=404)
-
+def build_transcript_md(data: dict) -> str:
+    """Public, agent-facing markdown transcript body — same underlying data as
+    build_transcript_html, minus HTML/CSS. Shared by /t/{node_id} (private
+    UUID-keyed nodes) and /yt/{video_id}?format=md (public YouTube pages), so
+    agents get one consistent markdown shape wherever they fetch it."""
     meta = data["meta"]
     key_points = meta.get("key_points") or []
     segments = meta.get("transcript_segments") or []
     video_id = meta.get("video_id") or ""
 
-    lines = []
-    lines.append(f"# {data['title'] or 'Untitled'}")
+    lines = [f"# {data['title'] or 'Untitled'}"]
     if data["url"]:
         lines.append(f"**Source:** {data['url']}")
     lines.append("")
@@ -402,18 +492,54 @@ async def transcript_md(node_id: str):
     lines.append("---")
     lines.append("*Transcribed with [Tacit](https://www.trytacit.app)*")
 
-    md = "\n".join(lines).strip() + "\n"
-    return PlainTextResponse(md, media_type="text/plain; charset=utf-8")
+    return "\n".join(lines).strip() + "\n"
 
 
-@app.get("/yt/{video_id}", response_class=HTMLResponse)
-@app.get("/yt/{video_id}/{slug}", response_class=HTMLResponse)
-async def public_youtube_transcript(video_id: str, slug: str = ""):
+@app.get("/t/{node_id}")
+async def transcript_md(node_id: str):
+    """Public transcript endpoint — returns raw markdown for a video node (like usetranscribe.io ?format=md).
+    Keyed by UUID node_id (unguessable). No auth required so agents and browsers can fetch directly."""
+    from .db.database import get_database, NodeDB
+
+    db = get_database()
+
+    def _get(session):
+        node = session.query(NodeDB).filter_by(id=node_id).first()
+        if not node:
+            return None
+        meta = node.node_meta or {}
+        return {
+            "title": node.title,
+            "url": node.url,
+            "summary": node.summary,
+            "content": node.content,
+            "meta": meta,
+        }
+
+    try:
+        data = db.run_with_retry(_get)
+    except Exception as e:
+        logger.error("transcript_md_db_error", node_id=node_id, error=str(e))
+        return PlainTextResponse("# Error\n\nTemporary error — please try again.", status_code=503)
+
+    if not data:
+        return PlainTextResponse("# Not Found\n\nThis transcript does not exist.", status_code=404)
+
+    return PlainTextResponse(build_transcript_md(data), media_type="text/markdown; charset=utf-8")
+
+
+@app.get("/yt/{video_id}")
+@app.get("/yt/{video_id}/{slug}")
+async def public_youtube_transcript(video_id: str, slug: str = "", format: str = "html"):
     """Public, usetranscribe.io-style transcript page keyed by YouTube video_id
     (publicly known — the video itself is already public, so this is intentionally
     enumerable). Tacit is multi-tenant, so a video_id can map to multiple nodes
     across users; resolves to the newest completed ingestion of that video — a
-    valid transcript of the video, not necessarily "your" ingestion of it."""
+    valid transcript of the video, not necessarily "your" ingestion of it.
+
+    ?format=md returns the same content as raw markdown (build_transcript_md) —
+    the agent-facing counterpart to the human-facing HTML page, so agents don't
+    have to scrape rendered HTML for something already public."""
     from .db.database import get_database, NodeDB
 
     db = get_database()
@@ -445,19 +571,27 @@ async def public_youtube_transcript(video_id: str, slug: str = ""):
         data = db.run_with_retry(_get)
     except Exception as e:
         logger.error("public_youtube_transcript_db_error", video_id=video_id, error=str(e))
+        if format == "md":
+            return PlainTextResponse("# Error\n\nTemporary error — please try again.", status_code=503)
         return HTMLResponse(
             "<h1 style='font-family:sans-serif;padding:40px'>Temporary error — please try again.</h1>",
             status_code=503,
         )
 
     if not data:
+        if format == "md":
+            return PlainTextResponse("# Not Found\n\nThis transcript does not exist.", status_code=404)
         return HTMLResponse(
             "<h1 style='font-family:sans-serif;padding:40px'>This transcript does not exist.</h1>",
             status_code=404,
         )
 
+    if format == "md":
+        return PlainTextResponse(build_transcript_md(data), media_type="text/markdown; charset=utf-8")
+
     canonical_url = f"https://www.trytacit.app/yt/{video_id}/{_slugify(data['title'])}"
-    return HTMLResponse(build_transcript_html(data, canonical_url))
+    md_url = f"https://www.trytacit.app/yt/{video_id}?format=md"
+    return HTMLResponse(build_transcript_html(data, canonical_url, md_url))
 
 
 @app.get("/s/{node_id}", response_class=HTMLResponse)
@@ -498,7 +632,8 @@ async def public_node_transcript(node_id: str, slug: str = ""):
         )
 
     canonical_url = f"https://www.trytacit.app/s/{node_id}/{_slugify(data['title'])}"
-    return HTMLResponse(build_transcript_html(data, canonical_url))
+    md_url = f"https://www.trytacit.app/t/{node_id}"
+    return HTMLResponse(build_transcript_html(data, canonical_url, md_url))
 
 
 @app.get("/", response_class=HTMLResponse)
