@@ -217,7 +217,7 @@ async def agents_md():
 - Content that is *not* derived from an already-public YouTube video — personal web saves, PDFs, tweets a user dropped into their own canvas — is served behind unguessable per-item links (`/s/{id}`, `/t/{id}`) and is intentionally not linked from this file, the sitemap, or robots.txt. Tacit does not publish an index of user-saved content.
 - Tacit is a product for humans to save and connect content, not a transcription API for third parties — there is no bulk/programmatic ingestion endpoint.
 """
-    return Response(content, media_type="text/markdown; charset=utf-8")
+    return Response(content, media_type="text/markdown")
 
 
 @app.post("/share", response_class=HTMLResponse)
@@ -525,7 +525,7 @@ async def transcript_md(node_id: str):
     if not data:
         return PlainTextResponse("# Not Found\n\nThis transcript does not exist.", status_code=404)
 
-    return PlainTextResponse(build_transcript_md(data), media_type="text/markdown; charset=utf-8")
+    return PlainTextResponse(build_transcript_md(data), media_type="text/markdown")
 
 
 @app.get("/yt/{video_id}")
@@ -587,7 +587,7 @@ async def public_youtube_transcript(video_id: str, slug: str = "", format: str =
         )
 
     if format == "md":
-        return PlainTextResponse(build_transcript_md(data), media_type="text/markdown; charset=utf-8")
+        return PlainTextResponse(build_transcript_md(data), media_type="text/markdown")
 
     canonical_url = f"https://www.trytacit.app/yt/{video_id}/{_slugify(data['title'])}"
     md_url = f"https://www.trytacit.app/yt/{video_id}?format=md"
