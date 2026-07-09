@@ -1044,9 +1044,10 @@ function _groupSegments(segments, minPara = 25, maxGap = 60) {
 }
 
 function _buildTranscriptText(node) {
+    // Copy button: overview + key points only. Full transcript is available
+    // via the .md button (downloadTranscriptMd), not copied to clipboard here.
     const meta = node.metadata || {};
     const keyPoints = meta.key_points || [];
-    const segments = meta.transcript_segments || [];
     let out = (node.title || 'Untitled') + '\n';
     if (node.url) out += node.url + '\n';
     out += '\n';
@@ -1054,15 +1055,7 @@ function _buildTranscriptText(node) {
     if (keyPoints.length) {
         out += 'Key Points:\n' + keyPoints.map(p => '• ' + p).join('\n') + '\n\n';
     }
-    if (segments.length) {
-        out += 'Transcript:\n' + _groupSegments(segments).map(seg => {
-            const secs = Math.floor(seg.start);
-            const mins = Math.floor(secs / 60);
-            const s = secs % 60;
-            return `[${mins}:${String(s).padStart(2, '0')}] ${seg.text}`;
-        }).join('\n\n');
-    }
-    out += '\n\n— Transcribed with Tacit → https://www.trytacit.app';
+    out += '\n— Transcribed with Tacit → https://www.trytacit.app';
     return out.trim();
 }
 
