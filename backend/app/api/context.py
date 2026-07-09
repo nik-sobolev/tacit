@@ -245,8 +245,10 @@ async def delete_context(request: Request, context_id: str, current_user: dict =
 
 
 @router.post("/context/search")
-async def search_contexts(request: Request, query: ContextSearchQuery):
-    """Search contexts semantically"""
+async def search_contexts(request: Request, query: ContextSearchQuery, current_user: dict = Depends(get_current_user)):
+    """Search contexts semantically. ChromaDB has no per-tenant isolation, so results
+    are re-verified as owned by current_user before being enriched/returned — same
+    pattern as documents.py's /documents/search."""
     try:
         engine = request.app.state.engine
         session = db.get_session()
@@ -263,11 +265,14 @@ async def search_contexts(request: Request, query: ContextSearchQuery):
             filter=filter_dict if filter_dict else None
         )
 
-        # Enrich with full context data from SQLite
+        # Enrich with full context data from SQLite — user_id filter here is what
+        # actually enforces ownership, not the Chroma search above.
         enriched_results = []
         for result in results:
             context_id = result['id']
-            db_context = session.query(ContextDB).filter(ContextDB.id == context_id).first()
+            db_context = session.query(ContextDB).filter(
+                ContextDB.id == context_id, ContextDB.user_id == current_user["id"]
+            ).first()
 
             if db_context:
                 context = Context(

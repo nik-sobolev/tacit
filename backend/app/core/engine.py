@@ -12,7 +12,7 @@ from anthropic import Anthropic, APIStatusError
 from .config import TacitConfig
 from ..services.vector_service import VectorService
 from ..models.chat import ChatMode
-from ..db.database import get_database, ConversationDB, MessageDB, NodeDB, EdgeDB, PersonDB, ContextDB, DocumentDB
+from ..db.database import get_database, ConversationDB, MessageDB, NodeDB, EdgeDB, PersonDB, ContextDB, DocumentDB, filter_owned_ids
 
 logger = structlog.get_logger()
 
@@ -341,12 +341,15 @@ class TacitEngine:
         return len(words & self._TEMPORAL_KEYWORDS) >= 1
 
     def _get_recent_nodes(self, limit: int = 10, user_id: str = None) -> List[Dict[str, Any]]:
-        """Fetch nodes sorted by created_at descending from SQLite."""
+        """Fetch nodes sorted by created_at descending from SQLite. Fails closed:
+        a falsy user_id returns nothing rather than every tenant's nodes — every
+        caller today always passes a real user_id, so this only matters as a
+        guardrail against a future/latent caller that doesn't."""
+        if not user_id:
+            return []
         session = self.db.get_session()
         try:
-            query = session.query(NodeDB).filter_by(status="done")
-            if user_id:
-                query = query.filter(NodeDB.user_id == user_id)
+            query = session.query(NodeDB).filter_by(status="done").filter(NodeDB.user_id == user_id)
             nodes = query.order_by(NodeDB.created_at.desc()).limit(limit).all()
             return [
                 {
@@ -451,11 +454,15 @@ class TacitEngine:
         finally:
             session.close()
 
-    def _scan_for_people(self, query: str) -> List[Dict[str, Any]]:
-        """Scan query for known person names (case-insensitive word-boundary match)."""
+    def _scan_for_people(self, query: str, user_id: str = None) -> List[Dict[str, Any]]:
+        """Scan query for known person names (case-insensitive word-boundary match).
+        Scoped to user_id — this reads AND writes (mention_count/last_mentioned_at),
+        so an unscoped scan would both leak and mutate another user's contacts."""
+        if not user_id:
+            return []
         db_session = self.db.get_session()
         try:
-            all_people = db_session.query(PersonDB).all()
+            all_people = db_session.query(PersonDB).filter(PersonDB.user_id == user_id).all()
             if not all_people:
                 return []
             query_lower = query.lower()
@@ -517,36 +524,22 @@ class TacitEngine:
             # ChromaDB has no per-tenant isolation — search_all() queries across every
             # user's embeddings, so results here can include other users' private nodes,
             # contexts, and document chunks. Re-verify ownership against SQL (source of
-            # truth for user_id) before any of this reaches the prompt. Treat a missing
-            # user_id as "owns nothing" rather than skipping the check.
-            owned_node_ids, owned_context_ids, owned_document_ids = set(), set(), set()
-            if user_id:
-                node_ids = {n["id"] for n in relevant_nodes}
-                context_ids = {c["id"] for c in relevant_contexts}
-                document_ids = {
-                    d["metadata"].get("document_id")
-                    for d in relevant_documents
-                    if d["metadata"].get("document_id")
-                }
-                session = self.db.get_session()
-                try:
-                    if node_ids:
-                        owned_node_ids = {
-                            r.id for r in session.query(NodeDB.id)
-                            .filter(NodeDB.id.in_(node_ids), NodeDB.user_id == user_id).all()
-                        }
-                    if context_ids:
-                        owned_context_ids = {
-                            r.id for r in session.query(ContextDB.id)
-                            .filter(ContextDB.id.in_(context_ids), ContextDB.user_id == user_id).all()
-                        }
-                    if document_ids:
-                        owned_document_ids = {
-                            r.id for r in session.query(DocumentDB.id)
-                            .filter(DocumentDB.id.in_(document_ids), DocumentDB.user_id == user_id).all()
-                        }
-                finally:
-                    session.close()
+            # truth for user_id) before any of this reaches the prompt. filter_owned_ids
+            # treats a missing user_id as "owns nothing" rather than skipping the check.
+            node_ids = {n["id"] for n in relevant_nodes}
+            context_ids = {c["id"] for c in relevant_contexts}
+            document_ids = {
+                d["metadata"].get("document_id")
+                for d in relevant_documents
+                if d["metadata"].get("document_id")
+            }
+            session = self.db.get_session()
+            try:
+                owned_node_ids = filter_owned_ids(session, NodeDB, node_ids, user_id)
+                owned_context_ids = filter_owned_ids(session, ContextDB, context_ids, user_id)
+                owned_document_ids = filter_owned_ids(session, DocumentDB, document_ids, user_id)
+            finally:
+                session.close()
             relevant_nodes = [n for n in relevant_nodes if n["id"] in owned_node_ids]
             relevant_contexts = [c for c in relevant_contexts if c["id"] in owned_context_ids]
             relevant_documents = [
@@ -610,9 +603,9 @@ class TacitEngine:
             edges = []
             if self.graph_service and relevant_nodes:
                 node_ids = [n["id"] for n in relevant_nodes]
-                edges = self.graph_service.get_edges_for_nodes(node_ids)
+                edges = self.graph_service.get_edges_for_nodes(node_ids, user_id=user_id)
 
-            people = self._scan_for_people(query)
+            people = self._scan_for_people(query, user_id=user_id)
 
             return {
                 "contexts": relevant_contexts,
@@ -1023,7 +1016,8 @@ The user is looking for specific information from their knowledge base.
             try:
                 name_lower = person_name.lower()
                 existing = db_session.query(PersonDB).filter(
-                    PersonDB.name_lower == name_lower
+                    PersonDB.name_lower == name_lower,
+                    PersonDB.user_id == self._current_user_id,
                 ).first()
                 now = datetime.utcnow()
                 if existing:
@@ -1047,6 +1041,7 @@ The user is looking for specific information from their knowledge base.
                     notes = [{"text": inputs["note"], "date": now.isoformat()}] if inputs.get("note") else []
                     p = PersonDB(
                         id=str(uuid.uuid4()), name=person_name, name_lower=name_lower,
+                        user_id=self._current_user_id,
                         role=inputs.get("role"), organization=inputs.get("organization"),
                         relationship=inputs.get("relationship"), context=inputs.get("context"),
                         action_items=inputs.get("action_items") or [], notes=notes,
@@ -1066,6 +1061,12 @@ The user is looking for specific information from their knowledge base.
         if name == "search_canvas_nodes":
             query = inputs.get("query", "")
             nodes = self.vector_service.search_nodes(query, limit=5)
+            node_ids = {n["id"] for n in nodes}
+            db_session = self.db.get_session()
+            try:
+                owned_ids = filter_owned_ids(db_session, NodeDB, node_ids, self._current_user_id)
+            finally:
+                db_session.close()
             return [
                 {
                     "id": n["id"],
@@ -1075,6 +1076,7 @@ The user is looking for specific information from their knowledge base.
                     "relevance": round(n.get("relevance_score", 0), 2)
                 }
                 for n in nodes
+                if n["id"] in owned_ids
             ]
 
         if name == "create_canvas_edge":
@@ -1084,8 +1086,8 @@ The user is looking for specific information from their knowledge base.
 
             db_session = self.db.get_session()
             try:
-                source = db_session.query(NodeDB).filter_by(id=source_id).first()
-                target = db_session.query(NodeDB).filter_by(id=target_id).first()
+                source = db_session.query(NodeDB).filter_by(id=source_id, user_id=self._current_user_id).first()
+                target = db_session.query(NodeDB).filter_by(id=target_id, user_id=self._current_user_id).first()
                 if not source or not target:
                     return {"error": "One or both node IDs not found in canvas"}
 
@@ -1126,6 +1128,11 @@ The user is looking for specific information from their knowledge base.
 
             db_session = self.db.get_session()
             try:
+                source_node = db_session.query(NodeDB).filter_by(id=source_id, user_id=self._current_user_id).first()
+                target_node = db_session.query(NodeDB).filter_by(id=target_id, user_id=self._current_user_id).first()
+                if not source_node or not target_node:
+                    return {"error": "One or both node IDs not found in canvas"}
+
                 edge = db_session.query(EdgeDB).filter(
                     ((EdgeDB.source_id == source_id) & (EdgeDB.target_id == target_id)) |
                     ((EdgeDB.source_id == target_id) & (EdgeDB.target_id == source_id))
@@ -1135,8 +1142,6 @@ The user is looking for specific information from their knowledge base.
                     return {"error": "No edge found between these two nodes"}
 
                 edge_id = edge.id
-                source_node = db_session.query(NodeDB).filter_by(id=source_id).first()
-                target_node = db_session.query(NodeDB).filter_by(id=target_id).first()
                 source_title = (source_node.title or "Untitled") if source_node else "Unknown"
                 target_title = (target_node.title or "Untitled") if target_node else "Unknown"
 

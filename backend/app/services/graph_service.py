@@ -10,7 +10,7 @@ from datetime import datetime
 
 from anthropic import Anthropic
 
-from ..db.database import get_database, NodeDB, EdgeDB
+from ..db.database import get_database, NodeDB, EdgeDB, filter_owned_ids
 from .vector_service import VectorService
 
 logger = structlog.get_logger()
@@ -54,12 +54,16 @@ class GraphService:
                     logger.info("process_node_skip_errored_node", node_id=node_id)
                     return
 
-                # Get existing nodes for context (before adding this one to vector DB)
+                # Get existing nodes for context (before adding this one to vector DB).
+                # ChromaDB has no per-tenant isolation, so re-verify ownership in SQL
+                # before any of this reaches the agent prompt (see filter_owned_ids).
                 existing = self.vector_service.search_nodes(node.content[:2000] if node.content else node.title or "", limit=5)
+                existing_ids = {n["id"] for n in existing if n["id"] != node_id}
+                owned_existing_ids = filter_owned_ids(session, NodeDB, existing_ids, node.user_id)
                 existing_summary = "\n".join(
                     f"- [{n['id']}] {n['metadata'].get('title', 'Untitled')}: {n['content'][:200]}"
                     for n in existing
-                    if n['id'] != node_id
+                    if n['id'] in owned_existing_ids
                 )
 
                 # Gather existing categories for consistency
@@ -271,14 +275,18 @@ Rules:
             raise
 
     def _create_agent_edges(self, node_id: str, connections: List[Dict], session) -> None:
-        """Create edges from Claude agent's suggested connections."""
+        """Create edges from Claude agent's suggested connections. Only links nodes
+        that share an owner with node_id — the agent's candidate connections come
+        from an unscoped ChromaDB search (see process_node), so this is where a
+        cross-tenant "connection" would otherwise turn into a real EdgeDB row."""
+        source_user_id = session.query(NodeDB.user_id).filter_by(id=node_id).scalar()
         for conn in connections:
             target_id = conn.get("node_id")
             if not target_id or target_id == node_id:
                 continue
-            # Verify target exists
+            # Verify target exists and belongs to the same user
             target = session.query(NodeDB).filter_by(id=target_id).first()
-            if not target:
+            if not target or target.user_id != source_user_id:
                 continue
             # Don't duplicate
             existing = session.query(EdgeDB).filter(
@@ -303,7 +311,9 @@ Rules:
     # ==================== AUTO-LINKING ====================
 
     def auto_link(self, node_id: str, threshold: float = 0.7) -> List[EdgeDB]:
-        """Find semantically similar nodes and create edges."""
+        """Find semantically similar nodes and create edges. search_nodes queries
+        ChromaDB across every tenant, so candidates are re-verified as owned by
+        node_id's own user before any edge gets created."""
         session = self.db.get_session()
         try:
             node = session.query(NodeDB).filter_by(id=node_id).first()
@@ -312,11 +322,13 @@ Rules:
 
             query = f"{node.title or ''} {node.summary or ''}"
             similar = self.vector_service.search_nodes(query, limit=6)
+            candidate_ids = {c["id"] for c in similar if c["id"] != node_id}
+            owned_candidate_ids = filter_owned_ids(session, NodeDB, candidate_ids, node.user_id)
 
             created_edges = []
             for candidate in similar:
                 cid = candidate["id"]
-                if cid == node_id:
+                if cid == node_id or cid not in owned_candidate_ids:
                     continue
                 score = candidate.get("relevance_score", 0)
                 if score < threshold:
@@ -437,9 +449,16 @@ Rules:
 
     # ==================== EDGE RETRIEVAL FOR CHAT ====================
 
-    def get_edges_for_nodes(self, node_ids: List[str], limit: int = 15) -> List[Dict[str, Any]]:
-        """Fetch edges where at least one endpoint is in node_ids, enriched with titles."""
-        if not node_ids:
+    def get_edges_for_nodes(self, node_ids: List[str], user_id: str = None, limit: int = 15) -> List[Dict[str, Any]]:
+        """Fetch edges where at least one endpoint is in node_ids, enriched with titles.
+
+        EdgeDB has no user_id column of its own, so ownership is derived from both
+        endpoints' NodeDB rows. This is the read-side backstop: auto_link/
+        _create_agent_edges are the write-side guard against creating cross-tenant
+        edges, but this also drops any edge created before that guard existed —
+        an edge only comes back if BOTH endpoints are owned by user_id.
+        """
+        if not node_ids or not user_id:
             return []
         session = self.db.get_session()
         try:
@@ -456,20 +475,24 @@ Rules:
                 all_ids.add(e.source_id)
                 all_ids.add(e.target_id)
 
-            nodes = session.query(NodeDB.id, NodeDB.title).filter(NodeDB.id.in_(all_ids)).all()
-            title_map = {n.id: n.title or "Untitled" for n in nodes}
+            owned_ids = filter_owned_ids(session, NodeDB, all_ids, user_id)
+            title_map = {
+                r.id: r.title or "Untitled"
+                for r in session.query(NodeDB.id, NodeDB.title).filter(NodeDB.id.in_(owned_ids)).all()
+            }
 
             return [
                 {
                     "source_id": e.source_id,
                     "target_id": e.target_id,
-                    "source_title": title_map.get(e.source_id, "Unknown"),
-                    "target_title": title_map.get(e.target_id, "Unknown"),
+                    "source_title": title_map[e.source_id],
+                    "target_title": title_map[e.target_id],
                     "label": e.label or "related",
                     "relationship_type": e.relationship_type,
                     "strength": e.strength,
                 }
                 for e in edges
+                if e.source_id in title_map and e.target_id in title_map
             ]
         finally:
             session.close()

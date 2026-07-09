@@ -309,6 +309,22 @@ class Database:
         self.engine.dispose()
 
 
+def filter_owned_ids(session, model, ids, user_id: str) -> set:
+    """Return the subset of `ids` that `model` rows show as owned by `user_id`.
+
+    Used to re-verify ownership of ChromaDB search hits in SQL (the source of
+    truth for user_id) since ChromaDB itself has no per-tenant isolation — every
+    caller of vector_service's search methods needs this, so it lives here
+    rather than being copy-pasted per call site. A falsy user_id or empty ids
+    always yields an empty set (fail closed), never "everything."
+    """
+    if not user_id or not ids:
+        return set()
+    return {
+        r.id for r in session.query(model.id).filter(model.id.in_(ids), model.user_id == user_id).all()
+    }
+
+
 # Singleton instance
 _db_instance = None
 
