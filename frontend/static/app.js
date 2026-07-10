@@ -417,7 +417,7 @@ function createCard(node) {
     const card = document.createElement('div');
     card.className = `canvas-card card-${node.type}`;
     card.dataset.nodeId = node.id;
-    const cat = (node.metadata && node.metadata.category) || '';
+    const cat = (node.metadata && node.metadata.category) || 'Uncategorized';
     card.dataset.category = cat;
     if (cat) card.style.borderLeftColor = categoryColor(cat);
     if (isMobile()) {
@@ -504,7 +504,7 @@ function updateCardContent(nodeId, node) {
     const card = nodeElements[nodeId];
     if (!card) return;
     card.className = `canvas-card card-${node.type}`;
-    const cat = (node.metadata && node.metadata.category) || '';
+    const cat = (node.metadata && node.metadata.category) || 'Uncategorized';
     card.dataset.category = cat;
     if (cat) card.style.borderLeftColor = categoryColor(cat);
     card.innerHTML = buildCardHTML(node);
