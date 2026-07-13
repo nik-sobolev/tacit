@@ -63,6 +63,7 @@ async def ingest_url(request: Request, body: IngestRequest, current_user: dict =
                     "status": existing.status,
                     "canvas_x": existing.canvas_x,
                     "canvas_y": existing.canvas_y,
+                    "thumbnail_url": existing.thumbnail_url,
                     "duplicate": True,
                 }
             # Failed node — delete so it gets re-processed
@@ -106,6 +107,7 @@ async def ingest_url(request: Request, body: IngestRequest, current_user: dict =
             "status": node.status,
             "canvas_x": node.canvas_x,
             "canvas_y": node.canvas_y,
+            "thumbnail_url": node.thumbnail_url,
         }
 
     except Exception as e:

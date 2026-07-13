@@ -3,7 +3,7 @@
 
 import html
 import structlog
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
@@ -316,6 +316,32 @@ async def share_canvas(token: str):
     return HTMLResponse(html_file.read_text())
 
 
+@app.get("/api/graph/public/{token}")
+async def public_graph_by_token(token: str):
+    """Token-scoped graph data for the anonymous /share/{token} viewer — deliberately
+    outside graph_api's router (which has auth_dep applied to every route on it) since
+    this is a public, unauthenticated read keyed by the share token instead of a Clerk JWT."""
+    from .db.database import ShareTokenDB, get_database
+    db = get_database()
+
+    def _resolve(session):
+        row = session.query(ShareTokenDB).filter_by(token=token).first()
+        if not row or row.revoked:
+            return None
+        return row.user_id
+
+    try:
+        user_id = db.run_with_retry(_resolve)
+    except Exception as e:
+        logger.error("public_graph_by_token_db_error", error=str(e))
+        raise HTTPException(status_code=503, detail="Temporary error — please refresh in a moment")
+
+    if not user_id:
+        raise HTTPException(status_code=404, detail="Link not found or revoked")
+
+    return graph_service.get_graph(user_id=user_id)
+
+
 def _group_segments(segments: list) -> list:
     """Group fine-grained (~2s) caption segments into natural paragraphs: break on
     the ">>" speaker-change marker YouTube embeds in captions, with a sentence-
@@ -598,21 +624,27 @@ async def public_youtube_transcript(video_id: str, slug: str = "", format: str =
         # video_id in Python.
         candidates = (
             session.query(NodeDB)
-            .filter(NodeDB.type == "youtube", NodeDB.status == "done", NodeDB.url.contains(video_id))
+            .filter(NodeDB.type == "youtube", NodeDB.url.contains(video_id))
             .order_by(NodeDB.created_at.desc())
             .all()
         )
-        for node in candidates:
-            if (node.node_meta or {}).get("video_id") == video_id:
-                return {
-                    "title": node.title,
-                    "url": node.url,
-                    "summary": node.summary,
-                    "content": node.content,
-                    "thumbnail_url": node.thumbnail_url,
-                    "meta": node.node_meta or {},
-                }
-        return None
+        matches = [n for n in candidates if (n.node_meta or {}).get("video_id") == video_id]
+        if not matches:
+            return None
+        # Prefer the newest completed ingestion (preserves "valid transcript of
+        # the video" behavior when multiple users have ingested it); only fall
+        # back to a non-done match so a freshly-shared link can show a "still
+        # processing"/"couldn't be processed" page instead of a bare 404.
+        node = next((n for n in matches if n.status == "done"), matches[0])
+        return {
+            "title": node.title,
+            "url": node.url,
+            "summary": node.summary,
+            "content": node.content,
+            "thumbnail_url": node.thumbnail_url,
+            "meta": node.node_meta or {},
+            "status": node.status,
+        }
 
     try:
         data = db.run_with_retry(_get)
@@ -630,6 +662,24 @@ async def public_youtube_transcript(video_id: str, slug: str = "", format: str =
             return PlainTextResponse("# Not Found\n\nThis transcript does not exist.", status_code=404)
         return HTMLResponse(
             "<h1 style='font-family:sans-serif;padding:40px'>This transcript does not exist.</h1>",
+            status_code=404,
+        )
+
+    if data["status"] in ("pending", "processing"):
+        if format == "md":
+            return PlainTextResponse(
+                "# Still Processing\n\nThis transcript is still being processed — check back in a minute.",
+                status_code=200,
+            )
+        return HTMLResponse(
+            "<h1 style='font-family:sans-serif;padding:40px'>This is still being processed — check back in a minute.</h1>",
+            status_code=200,
+        )
+    if data["status"] == "error":
+        if format == "md":
+            return PlainTextResponse("# Not Available\n\nThis item couldn't be processed.", status_code=404)
+        return HTMLResponse(
+            "<h1 style='font-family:sans-serif;padding:40px'>This item couldn't be processed.</h1>",
             status_code=404,
         )
 
@@ -661,6 +711,7 @@ async def public_node_transcript(node_id: str, slug: str = ""):
             "content": node.content,
             "thumbnail_url": node.thumbnail_url,
             "meta": node.node_meta or {},
+            "status": node.status,
         }
 
     try:
@@ -675,6 +726,17 @@ async def public_node_transcript(node_id: str, slug: str = ""):
     if not data:
         return HTMLResponse(
             "<h1 style='font-family:sans-serif;padding:40px'>This transcript does not exist.</h1>",
+            status_code=404,
+        )
+
+    if data["status"] in ("pending", "processing"):
+        return HTMLResponse(
+            "<h1 style='font-family:sans-serif;padding:40px'>This is still being processed — check back in a minute.</h1>",
+            status_code=200,
+        )
+    if data["status"] == "error":
+        return HTMLResponse(
+            "<h1 style='font-family:sans-serif;padding:40px'>This item couldn't be processed.</h1>",
             status_code=404,
         )
 

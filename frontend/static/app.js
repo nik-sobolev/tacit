@@ -196,6 +196,7 @@ function sessionStorageKey() {
 // ==================== CANVAS STATE ====================
 
 let canvasX = 0, canvasY = 0, canvasScale = 1;
+let lastMouseClientX = null, lastMouseClientY = null;
 let isPanning = false, panStartX = 0, panStartY = 0;
 let isDraggingCard = false;
 let dragCard = null, dragOffsetX = 0, dragOffsetY = 0;
@@ -259,6 +260,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadFeatureFlags();
     initCanvas();
     initIngestion();
+    initPaste();
     initChat();
     initChatResize();
     initUI();
@@ -300,6 +302,8 @@ function initCanvas() {
     });
 
     document.addEventListener('mousemove', (e) => {
+        lastMouseClientX = e.clientX;
+        lastMouseClientY = e.clientY;
         if (isPanning) {
             canvasX = e.clientX - panStartX;
             canvasY = e.clientY - panStartY;
@@ -610,7 +614,41 @@ function initIngestion() {
     });
 }
 
-async function submitUrl() {
+// Global paste-on-canvas: Cmd/Ctrl+V while not focused on an editable field
+// (urlInput, note fields, chat input, bulk-add textarea, etc.) creates a card
+// at the last-known mouse position, mirroring the drop handler above but for
+// keyboard paste instead of drag-and-drop.
+function initPaste() {
+    document.addEventListener('paste', (e) => {
+        const target = e.target;
+        const isEditable = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+        if (isEditable) return; // let normal paste happen everywhere else
+
+        const text = (e.clipboardData || window.clipboardData)?.getData('text/plain') || '';
+        if (!text || !text.trim().startsWith('http')) return; // not a URL — no-op
+
+        e.preventDefault();
+        const viewport = document.getElementById('canvasViewport');
+        const rect = viewport.getBoundingClientRect();
+        const withinViewport = lastMouseClientX != null &&
+            lastMouseClientX >= rect.left && lastMouseClientX <= rect.right &&
+            lastMouseClientY >= rect.top && lastMouseClientY <= rect.bottom;
+
+        let cx, cy;
+        if (withinViewport && !isMobile()) {
+            cx = (lastMouseClientX - rect.left - canvasX) / canvasScale;
+            cy = (lastMouseClientY - rect.top - canvasY) / canvasScale;
+        } else {
+            cx = (-canvasX + rect.width / 2) / canvasScale;
+            cy = (-canvasY + rect.height / 2) / canvasScale;
+        }
+
+        document.getElementById('urlInput').value = text.trim();
+        submitUrl(cx, cy);
+    });
+}
+
+async function submitUrl(overrideX, overrideY) {
     const input = document.getElementById('urlInput');
     const url = input.value.trim();
     if (!url || !url.startsWith('http')) {
@@ -652,11 +690,12 @@ async function submitUrl() {
         } catch (_) {}
     }
 
-    // Place new card near center of current viewport (desktop) or stacked (mobile)
+    // Place new card near center of current viewport (desktop) or stacked (mobile),
+    // unless an explicit position override was passed (e.g. paste-on-canvas).
     const viewport = document.getElementById('canvasViewport');
     const vw = viewport.clientWidth, vh = viewport.clientHeight;
-    const cx = isMobile() ? 100 + graphData.nodes.length * 10 : (-canvasX + vw / 2) / canvasScale + (Math.random() * 200 - 100);
-    const cy = isMobile() ? 100 + graphData.nodes.length * 10 : (-canvasY + vh / 2) / canvasScale + (Math.random() * 200 - 100);
+    const cx = (overrideX != null) ? overrideX : (isMobile() ? 100 + graphData.nodes.length * 10 : (-canvasX + vw / 2) / canvasScale + (Math.random() * 200 - 100));
+    const cy = (overrideY != null) ? overrideY : (isMobile() ? 100 + graphData.nodes.length * 10 : (-canvasY + vh / 2) / canvasScale + (Math.random() * 200 - 100));
 
     try {
         const res = await apiFetch(`${API_BASE}/ingest`, {
@@ -695,7 +734,7 @@ async function submitUrl() {
             type: data.type || 'webpage',
             title: data.title || url,
             summary: null,
-            thumbnail_url: null,
+            thumbnail_url: data.thumbnail_url || null,
             url,
             canvas_x: cx,
             canvas_y: cy,
@@ -980,13 +1019,14 @@ async function openDetail(nodeId) {
             transcriptHTML = `<div class="detail-section"><h4>${isVideo ? 'Transcript' : 'Full Content'}</h4><div class="detail-transcript">${escapeHtml(node.content)}</div></div>`;
         }
 
-        // Action bar for video nodes
-        const actionBar = isVideo ? `
+        // Action bar — Copy/.md/Share work for any node type (backend routes are
+        // type-agnostic); isVideo above is still used for the section label.
+        const actionBar = `
             <div class="detail-actions">
                 <button class="detail-action-btn" onclick="copyTranscriptText('${node.id}', this)" title="Copy to clipboard">Copy</button>
                 <button class="detail-action-btn" onclick="downloadTranscriptMd('${node.id}')" title="Open as markdown page">.md</button>
                 <button class="detail-action-btn" onclick="openSharePopover('${node.id}', this)" title="Share to social media">Share</button>
-            </div>` : '';
+            </div>`;
 
         content.innerHTML = `
             ${node.thumbnail_url ? `<img class="${node.type === 'image' ? 'detail-thumb-image' : 'detail-thumb'}" src="${escapeHtml(node.thumbnail_url)}" alt="" onerror="this.style.display='none'" />` : ''}
@@ -1511,6 +1551,20 @@ function mobileShowAdd() {
             sheet.innerHTML = urlUI.replace(/id="mobile/g, 'id="new-mobile');
             setTimeout(() => modal.querySelector('#new-mobileUrlInput')?.focus(), 100);
             modal.querySelector('#new-mobileAddBtn')?.addEventListener('click', handleAddUrl);
+
+            // Best-effort clipboard prefill — mobile has no keyboard paste gesture,
+            // so this is the closest equivalent to desktop's paste-on-canvas. Must
+            // never block or show an error; permission denial/empty/non-URL clipboard
+            // all silently fall back to today's manual-paste behavior.
+            if (navigator.clipboard && navigator.clipboard.readText) {
+                navigator.clipboard.readText().then(text => {
+                    const trimmed = (text || '').trim();
+                    if (trimmed.startsWith('http')) {
+                        const field = modal.querySelector('#new-mobileUrlInput');
+                        if (field && !field.value) field.value = trimmed;
+                    }
+                }).catch(() => { /* permission denied or unsupported — leave field empty */ });
+            }
         } else if (newMode === 'note') {
             sheet.innerHTML = noteUI.replace(/id="mobile/g, 'id="new-mobile');
             setTimeout(() => modal.querySelector('#new-mobileNoteContent')?.focus(), 100);

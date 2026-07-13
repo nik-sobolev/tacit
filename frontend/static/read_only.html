@@ -174,12 +174,19 @@
 
     // ── Load graph ────────────────────────────────────────────────────────────
     async function loadGraph() {
-        const res = await fetch('/api/graph');
-        const data = await res.json();
-        nodes = data.nodes || [];
-        edges = data.edges || [];
-        renderCanvas();
-        if (nodes.length === 0) emptyState.style.display = 'flex';
+        try {
+            const token = window.location.pathname.split('/').filter(Boolean).pop();
+            const res = await fetch(`/api/graph/public/${token}`);
+            if (!res.ok) throw new Error(`Server error: ${res.status}`);
+            const data = await res.json();
+            nodes = data.nodes || [];
+            edges = data.edges || [];
+            renderCanvas();
+            if (nodes.length === 0) emptyState.style.display = 'flex';
+        } catch (e) {
+            emptyState.textContent = 'Could not load this canvas — the link may be invalid or revoked.';
+            emptyState.style.display = 'flex';
+        }
     }
 
     // ── Card rendering ────────────────────────────────────────────────────────
