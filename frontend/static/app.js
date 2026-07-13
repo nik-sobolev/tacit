@@ -479,7 +479,13 @@ function buildCardHTML(node) {
     if (isProcessing) {
         bodyHTML = `<div class="card-processing-indicator"><div class="spinner-small"></div><span>Processing…</span></div>`;
     } else if (isError) {
-        bodyHTML = `<div class="card-error">⚠ Processing failed</div>`;
+        // A tweet (or other source) that's genuinely gone upstream isn't a Tacit
+        // failure — don't show it as one. Marker set server-side, see
+        // ingestion_service.py's TWEET_NOT_FOUND_MARKER.
+        const isUnavailable = (node.error_message || '').startsWith('TWEET_NOT_FOUND:');
+        bodyHTML = isUnavailable
+            ? `<div class="card-unavailable">No longer available on X</div>`
+            : `<div class="card-error">⚠ Processing failed</div>`;
     } else {
         const summary = node.summary ? `<p class="card-summary">${escapeHtml(node.summary)}</p>` : '';
         const tags = (node.tags || []).slice(0, 4).map(t =>
@@ -937,8 +943,15 @@ function pollNodeStatus(nodeId, attempts = 0) {
                     addMessage('assistant', msg);
                 }
             } else if (data.status === 'error') {
-                updateCardContent(nodeId, { ...graphData.nodes.find(n => n.id === nodeId), status: 'error' });
-                showToast('Processing failed for this URL', 'error');
+                const isUnavailable = (data.error_message || '').startsWith('TWEET_NOT_FOUND:');
+                const idx = graphData.nodes.findIndex(n => n.id === nodeId);
+                if (idx !== -1) {
+                    graphData.nodes[idx] = { ...graphData.nodes[idx], status: 'error', error_message: data.error_message };
+                    updateCardContent(nodeId, graphData.nodes[idx]);
+                } else {
+                    updateCardContent(nodeId, { status: 'error', error_message: data.error_message });
+                }
+                showToast(isUnavailable ? 'This post is no longer available on X' : 'Processing failed for this URL', 'error');
             } else {
                 pollNodeStatus(nodeId, attempts + 1);
             }

@@ -528,6 +528,7 @@ Rules:
             "canvas_x": node.canvas_x,
             "canvas_y": node.canvas_y,
             "status": node.status,
+            "error_message": node.error_message,
             "tags": node.tags or [],
             "metadata": node.node_meta or {},
             "created_at": node.created_at.isoformat() if node.created_at else None,

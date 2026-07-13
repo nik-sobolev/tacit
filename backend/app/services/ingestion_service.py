@@ -639,27 +639,41 @@ class IngestionService:
 
     # ==================== TWITTER / X ====================
 
-    def _extract_tweet(self, url: str) -> Dict[str, Any]:
-        """Extract tweet content: oEmbed text + yt-dlp/whisper video transcript when present.
+    # Prefix that marks a ValueError as "this post genuinely doesn't exist on X"
+    # rather than a real extraction failure — ingest.py checks for this to give
+    # the node a distinct, calmer status than a generic processing error.
+    TWEET_NOT_FOUND_MARKER = "TWEET_NOT_FOUND:"
 
-        oEmbed and video are independent sources (most tweets have no video, some
+    def _extract_tweet(self, url: str) -> Dict[str, Any]:
+        """Extract tweet content: full-text (GraphQL, falls back to oEmbed) +
+        yt-dlp/whisper video transcript when present.
+
+        Text and video are independent sources (most tweets have no video, some
         have video with no caption text) so they're merged rather than treated as
         a fallback chain. Raises if nothing usable comes back from any path, so
         ingest_url() marks the node status="error" instead of letting an empty
         node reach LLM enrichment (which previously fabricated a plausible-looking
         title from nothing).
         """
-        oembed = self._extract_tweet_oembed(url)
+        primary = self._extract_tweet_graphql(url)
+        if primary.get("not_found"):
+            # Authoritative — X's own API has no record of this tweet at all, so
+            # there's nothing for oEmbed/video/Playwright to find either. Fail
+            # immediately with a marked message instead of burning more requests.
+            raise ValueError(f"{self.TWEET_NOT_FOUND_MARKER} This post is no longer available on X ({url})")
+
+        text_source = primary if primary.get("text") else self._extract_tweet_oembed(url)
         transcript_text, transcript_segments, video_meta = self._extract_tweet_video(url)
 
-        author = oembed.get("author", "")
-        handle = oembed.get("handle", "")
-        text = oembed.get("text", "")
+        author = text_source.get("author", "")
+        handle = text_source.get("handle", "")
+        text = text_source.get("text", "")
 
         if not text and not transcript_text:
-            # oEmbed gave no real body text (media-only tweet with no video we
-            # could find, or an unsupported content type like an X Article) and
-            # there's no video transcript either — try rendering the page directly.
+            # Neither GraphQL nor oEmbed gave real body text (media-only tweet with
+            # no video we could find, or an unsupported content type like an X
+            # Article) and there's no video transcript either — try rendering the
+            # page directly.
             #
             # Gated behind TWEET_PLAYWRIGHT_FALLBACK (default off): launching
             # Chromium here appears to OOM-crash the production instance (Render
@@ -695,8 +709,8 @@ class IngestionService:
                         "author": author,
                         "handle": handle,
                     }
-                    # Prefer oEmbed's profile picture over the generic site favicon
-                    page["thumbnail_url"] = oembed.get("thumbnail_url") or page.get("thumbnail_url")
+                    # Prefer the profile picture we already have over the generic site favicon
+                    page["thumbnail_url"] = text_source.get("thumbnail_url") or page.get("thumbnail_url")
                     return page
                 elif is_x_error_page:
                     fallback_error = "playwright rendered an X error/not-found page"
@@ -710,8 +724,8 @@ class IngestionService:
         content_parts = [p for p in (text, transcript_text) if p]
         content = "\n\n".join(content_parts) if content_parts else (text or transcript_text)
 
-        title = oembed.get("title") or (f"Tweet by {author}" if author else f"Tweet: {url}")
-        thumbnail_url = video_meta.get("thumbnail") or oembed.get("thumbnail_url")
+        title = text_source.get("title") or (f"Tweet by {author}" if author else f"Tweet: {url}")
+        thumbnail_url = video_meta.get("thumbnail") or text_source.get("thumbnail_url")
 
         meta: Dict[str, Any] = {"tweet_url": url, "author": author, "handle": handle}
         if video_meta.get("duration"):
@@ -770,6 +784,65 @@ class IngestionService:
             }
         except Exception as e:
             logger.warning("tweet_oembed_failed", url=url, error=str(e))
+            return {}
+
+    def _extract_tweet_graphql(self, url: str) -> Dict[str, Any]:
+        """Fetch full, untruncated tweet text/author via yt-dlp's Twitter extractor,
+        which calls X's real internal GraphQL API (the same one x.com's own web
+        client uses) rather than the public oEmbed endpoint. oEmbed's HTML
+        blockquote truncates long-form "Note Tweets" — this doesn't, since it reads
+        the raw `full_text` field directly. Primary text source; see _extract_tweet().
+
+        Never raises (same contract as _extract_tweet_oembed) — returns {} on any
+        unexpected failure. Returns {"not_found": True} specifically when the tweet
+        doesn't exist/was deleted (status has no `user` at all) — distinguished from
+        a real tweet that just has no caption text, which callers should NOT treat
+        as "not found"."""
+        import re as _re
+        match = _re.search(r"/status/(\d+)", url)
+        if not match:
+            return {}
+        tweet_id = match.group(1)
+
+        try:
+            import yt_dlp
+            from yt_dlp.extractor.twitter import TwitterIE
+
+            ydl_opts = {
+                "quiet": True,
+                "no_warnings": True,
+                **self._yt_dlp_cookies_opts(),
+                **self._x_cookies_opts(),
+                **self._yt_dlp_proxy_opts(),
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ie = TwitterIE()
+                ie.set_downloader(ydl)
+                status = ie._extract_status(tweet_id)
+
+            user = status.get("user") or {}
+            if not user:
+                # No user object at all = the API itself couldn't resolve this
+                # tweet (deleted, or never existed) — not the same as "exists but
+                # has no caption text" (a real media-only tweet still has a user).
+                return {"not_found": True}
+
+            text = (status.get("full_text") or status.get("text") or "").strip()
+            author = user.get("name") or ""
+            handle = user.get("screen_name") or ""
+            handle_str = f"@{handle}" if handle else ""
+
+            title = f"{author} {handle_str}: {text[:120]}" if text else (f"Tweet by {author}" if author else "")
+
+            return {
+                "title": title[:400] if title else "",
+                "text": text,
+                "author": author,
+                "handle": handle,
+                "thumbnail_url": f"https://unavatar.io/twitter/{handle}" if handle else None,
+            }
+        except Exception as e:
+            logger.warning("tweet_graphql_failed", url=url, error=str(e))
             return {}
 
     def _extract_tweet_video(self, url: str):
