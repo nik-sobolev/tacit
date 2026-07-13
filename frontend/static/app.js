@@ -5,7 +5,7 @@ const API_BASE = '/api';
 
 // ==================== FEATURE FLAGS ====================
 
-let featureFlags = { notes_enabled: false, people_enabled: false };
+let featureFlags = { notes_enabled: false, people_enabled: false, usage_v2_enabled: false };
 
 async function loadFeatureFlags() {
     try {
@@ -705,10 +705,11 @@ async function submitUrl(overrideX, overrideY) {
         });
 
         if (res.status === 402) {
-            showToast('Token limit reached. Upgrade to Pro for $9/mo.', 'error');
-            show402Modal();
+            const category = await res.json().then(d => d.detail && d.detail.category).catch(() => null);
+            showToast('Usage limit reached. Upgrade to keep going.', 'error');
+            show402Modal(category);
             await loadUsageMeter();
-            throw new Error('Token limit reached');
+            throw new Error('Usage limit reached');
         }
         if (!res.ok) throw new Error(`Server error: ${res.status}`);
         const data = await res.json();
@@ -1320,24 +1321,60 @@ function isMobile() {
 // ==================== BILLING ====================
 
 async function openBillingPanel() {
-    const status = await apiFetch(`${API_BASE}/billing/status`).then(r => r.json()).catch(() => ({
-        plan: 'free', tokens_used: 0, tokens_limit: 100_000, pct_used: 0
-    }));
+    const isV2 = featureFlags.usage_v2_enabled;
+    const status = await apiFetch(`${API_BASE}/billing/status`).then(r => r.json()).catch(() => (
+        isV2 ? { tier: 'free', tier_label: 'Free', usage: {} }
+             : { plan: 'free', tokens_used: 0, tokens_limit: 100_000, pct_used: 0 }
+    ));
 
-    const planLabel = { free: 'Free', pro: 'Pro', premium: 'Premium', superadmin: 'Unlimited' }[status.plan] || status.plan;
-    const planPrice = { pro: '$9 / month', premium: '$19 / month' }[status.plan] || '';
-    const isUnlimited = status.plan === 'superadmin';
-    const barPct = isUnlimited ? 0 : Math.min(status.pct_used, 100);
-    const barColor = status.pct_used >= 95 ? '#e53e3e' : status.pct_used >= 80 ? '#ed8936' : '#c05621';
+    const currentPlan = isV2 ? status.tier : status.plan;
+    const planLabel = isV2
+        ? (status.tier_label || 'Free')
+        : ({ free: 'Free', pro: 'Pro', premium: 'Premium', superadmin: 'Unlimited' }[status.plan] || status.plan);
+    const planPrice = { pro: '$9 / month', premium: '$19 / month', core: '$9 / month', operator: '$19 / month' }[currentPlan] || '';
+    const isUnlimited = currentPlan === 'superadmin';
 
-    const upgradeBtn = status.plan === 'free'
-        ? `<button id="billingUpgradePro" style="display:block;width:100%;padding:10px 14px;margin-bottom:8px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;font-weight:600;">Pro — $9/month · 500K tokens</button>
-           <button id="billingUpgradePremium" style="display:block;width:100%;padding:10px 14px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;font-weight:600;">Premium — $19/month · 1M tokens</button>`
-        : status.plan === 'pro'
-        ? `<button id="billingUpgradePremium" style="display:block;width:100%;padding:10px 14px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;font-weight:600;">Upgrade to Premium — $19/month · 1M tokens</button>`
+    // v2: one bar per category. v1: single token bar (unchanged).
+    const usageSectionV2 = () => {
+        const rows = Object.entries(status.usage || {}).map(([category, stats]) => {
+            const barPct = Math.min(stats.pct, 100);
+            const barColor = stats.pct >= 100 ? '#e53e3e' : stats.pct >= 80 ? '#ed8936' : '#c05621';
+            return `
+                <div style="margin-bottom:12px;">
+                    <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-secondary);margin-bottom:4px;">
+                        <span>${USAGE_CATEGORY_LABELS[category] || category}</span>
+                        <span>${stats.used} / ${stats.limit}</span>
+                    </div>
+                    <div style="background:var(--border);height:5px;border-radius:3px;overflow:hidden;">
+                        <div style="background:${barColor};height:100%;width:${barPct}%;transition:width 0.3s;"></div>
+                    </div>
+                </div>`;
+        }).join('');
+        return isUnlimited
+            ? `<div style="color:var(--text-secondary);font-size:14px;">Unlimited</div>`
+            : (rows || `<div style="color:var(--text-secondary);font-size:14px;">No usage yet this period.</div>`);
+    };
+
+    const usageSectionV1 = () => {
+        const barPct = isUnlimited ? 0 : Math.min(status.pct_used, 100);
+        const barColor = status.pct_used >= 95 ? '#e53e3e' : status.pct_used >= 80 ? '#ed8936' : '#c05621';
+        return isUnlimited
+            ? `<div style="color:var(--text-secondary);font-size:14px;">${status.tokens_used.toLocaleString()} used · unlimited</div>`
+            : `<div style="color:var(--text);font-size:14px;margin-bottom:8px;">${status.tokens_used.toLocaleString()} / ${status.tokens_limit.toLocaleString()}</div>
+               <div style="background:var(--border);height:6px;border-radius:3px;overflow:hidden;">
+                   <div style="background:${barColor};height:100%;width:${barPct}%;transition:width 0.3s;"></div>
+               </div>
+               <div style="color:var(--text-tertiary);font-size:12px;margin-top:6px;">${status.pct_used}% used</div>`;
+    };
+
+    const upgradeBtn = currentPlan === 'free'
+        ? `<button id="billingUpgradePro" style="display:block;width:100%;padding:10px 14px;margin-bottom:8px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;font-weight:600;">${isV2 ? 'Upgrade to Core — $9/month' : 'Pro — $9/month · 500K tokens'}</button>
+           <button id="billingUpgradePremium" style="display:block;width:100%;padding:10px 14px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;font-weight:600;">${isV2 ? 'Upgrade to Operator — $19/month' : 'Premium — $19/month · 1M tokens'}</button>`
+        : (currentPlan === 'pro' || currentPlan === 'core')
+        ? `<button id="billingUpgradePremium" style="display:block;width:100%;padding:10px 14px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;text-align:left;font-weight:600;">${isV2 ? 'Upgrade to Operator — $19/month' : 'Upgrade to Premium — $19/month · 1M tokens'}</button>`
         : '';
 
-    const portalBtn = (status.plan === 'pro' || status.plan === 'premium')
+    const portalBtn = ['pro', 'premium', 'core', 'operator'].includes(currentPlan)
         ? `<button id="billingPortal" style="display:block;width:100%;padding:10px 14px;margin-top:8px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:8px;font-size:14px;cursor:pointer;text-align:center;">Manage Subscription</button>`
         : '';
 
@@ -1356,15 +1393,8 @@ async function openBillingPanel() {
             </div>
 
             <div style="margin-bottom:24px;">
-                <div style="color:var(--text-secondary);font-size:11px;letter-spacing:0.05em;margin-bottom:8px;">TOKEN USAGE THIS MONTH</div>
-                ${isUnlimited
-                    ? `<div style="color:var(--text-secondary);font-size:14px;">${status.tokens_used.toLocaleString()} used · unlimited</div>`
-                    : `<div style="color:var(--text);font-size:14px;margin-bottom:8px;">${status.tokens_used.toLocaleString()} / ${status.tokens_limit.toLocaleString()}</div>
-                       <div style="background:var(--border);height:6px;border-radius:3px;overflow:hidden;">
-                           <div style="background:${barColor};height:100%;width:${barPct}%;transition:width 0.3s;"></div>
-                       </div>
-                       <div style="color:var(--text-tertiary);font-size:12px;margin-top:6px;">${status.pct_used}% used</div>`
-                }
+                <div style="color:var(--text-secondary);font-size:11px;letter-spacing:0.05em;margin-bottom:8px;">USAGE THIS ${isV2 ? 'PERIOD' : 'MONTH'}</div>
+                ${isV2 ? usageSectionV2() : usageSectionV1()}
             </div>
 
             ${upgradeBtn || portalBtn ? `<div style="margin-bottom:8px;">${upgradeBtn}${portalBtn}</div>` : ''}
@@ -1629,6 +1659,20 @@ function mobileShowAdd() {
 
 // ==================== BILLING ====================
 
+// v2 (human-unit) category labels/copy — v1 (token-based) shape has no categories.
+const USAGE_CATEGORY_LABELS = {
+    save: 'Saves', query: 'Ask Tacit', synthesis: 'AI enrichment', digest: 'Digests', agent_run: 'Agent runs',
+};
+const USAGE_CATEGORY_CAP_COPY = {
+    save: "You've reached your save limit for this billing period.",
+    query: "You've reached your Ask Tacit limit for this billing period.",
+    synthesis: "You've reached your AI enrichment limit for this billing period — saves still work, just without automatic AI summaries.",
+    digest: "You've reached your digest limit for this billing period.",
+    agent_run: "You've reached your agent run limit for this billing period.",
+};
+// Shown once per session per category — avoid nagging on every poll.
+const _usageWarnedCategories = new Set();
+
 async function loadUsageMeter() {
     try {
         const res = await apiFetch(`${API_BASE}/billing/status`);
@@ -1637,6 +1681,36 @@ async function loadUsageMeter() {
         const meter = document.getElementById('usageMeter');
         const text = document.getElementById('usageText');
 
+        if (featureFlags.usage_v2_enabled) {
+            const categories = Object.entries(data.usage || {});
+            if (!categories.length) { meter.style.display = 'none'; return; }
+            // Header pill is compact — show whichever category is closest to its cap.
+            // The full per-category breakdown lives in openBillingPanel().
+            const [topCategory, topStats] = categories.reduce((a, b) => (b[1].pct > a[1].pct ? b : a));
+            text.textContent = `${USAGE_CATEGORY_LABELS[topCategory] || topCategory}: ${Math.round(topStats.pct)}%`;
+            meter.style.display = 'block';
+            meter.style.cursor = 'pointer';
+            meter.onclick = () => openBillingPanel();
+
+            meter.classList.remove('near-limit', 'at-limit');
+            if (topStats.pct >= 100) meter.classList.add('at-limit');
+            else if (topStats.pct >= 80) meter.classList.add('near-limit');
+
+            // Server computes the warn threshold (80%) — client only renders it,
+            // never recomputes the threshold itself, keeping it server-authoritative.
+            for (const [category, stats] of categories) {
+                if (stats.warn && stats.pct < 100 && !_usageWarnedCategories.has(category)) {
+                    _usageWarnedCategories.add(category);
+                    showToast(
+                        `You're at ${Math.round(stats.pct)}% of your ${(USAGE_CATEGORY_LABELS[category] || category).toLowerCase()} limit this period.`,
+                        'error'
+                    );
+                }
+            }
+            return;
+        }
+
+        // v1 (token-based) shape — unchanged, active while FEATURE_USAGE_V2 is off.
         const pct = data.pct_used || 0;
         const limit = data.tokens_limit || 100000;
         const used = data.tokens_used || 0;
@@ -1646,7 +1720,6 @@ async function loadUsageMeter() {
         meter.style.cursor = 'pointer';
         meter.onclick = () => openBillingPanel();
 
-        // Color based on usage
         meter.classList.remove('near-limit', 'at-limit');
         if (pct >= 95) {
             meter.classList.add('at-limit');
@@ -1658,20 +1731,28 @@ async function loadUsageMeter() {
     }
 }
 
-function show402Modal() {
+function show402Modal(category) {
+    const isV2 = featureFlags.usage_v2_enabled;
+    const title = isV2 ? 'Usage limit reached' : 'Token limit reached';
+    const body = isV2
+        ? (USAGE_CATEGORY_CAP_COPY[category] || "You've reached your usage limit for this billing period.")
+        : "You've used your monthly allowance. Upgrade to keep going.";
+    const tier1Label = isV2 ? 'Upgrade to Core' : 'Pro — $9/month · 500K tokens';
+    const tier2Label = isV2 ? 'Upgrade to Operator' : 'Premium — $19/month · 1M tokens';
+
     const modal = document.createElement('div');
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:99999;';
     modal.innerHTML = `
         <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:28px;width:380px;max-width:92vw;">
-            <h3 style="color:var(--text);font-size:17px;margin:0 0 8px 0;">Token limit reached</h3>
+            <h3 style="color:var(--text);font-size:17px;margin:0 0 8px 0;">${title}</h3>
             <p style="color:var(--text-secondary);font-size:14px;margin:0 0 24px 0;">
-                You've used your monthly allowance. Upgrade to keep going.
+                ${body}
             </p>
             <button id="modal402Pro" style="display:block;width:100%;padding:11px 14px;margin-bottom:8px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;text-align:left;">
-                Pro — $9/month · 500K tokens
+                ${tier1Label}
             </button>
             <button id="modal402Premium" style="display:block;width:100%;padding:11px 14px;margin-bottom:16px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;text-align:left;">
-                Premium — $19/month · 1M tokens
+                ${tier2Label}
             </button>
             <button id="modal402Close" style="display:block;width:100%;padding:9px 14px;background:transparent;color:var(--text-tertiary);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;">
                 Maybe later
@@ -1680,6 +1761,8 @@ function show402Modal() {
     `;
     document.body.appendChild(modal);
 
+    // Checkout endpoint's plan param is still "pro"/"premium" internally (unchanged
+    // Stripe price IDs, see core/tiers.py) — only the displayed labels say Core/Operator.
     modal.querySelector('#modal402Pro').addEventListener('click', () => { modal.remove(); startCheckout('pro'); });
     modal.querySelector('#modal402Premium').addEventListener('click', () => { modal.remove(); startCheckout('premium'); });
     modal.querySelector('#modal402Close').addEventListener('click', () => modal.remove());
@@ -2101,7 +2184,8 @@ async function sendMessage() {
         });
         if (res.status === 402) {
             removeMessage(loadingId);
-            show402Modal();
+            const category = await res.json().then(d => d.detail && d.detail.category).catch(() => null);
+            show402Modal(category);
             await loadUsageMeter();
             return;
         }
