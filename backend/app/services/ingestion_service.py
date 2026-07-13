@@ -542,6 +542,32 @@ class IngestionService:
             logger.warning("x_cookie_load_failed", error=str(e))
             return {}
 
+    def _x_cookie_health(self) -> str:
+        """Diagnose X_COOKIES_B64's actual usability, not just whether it's set.
+        Session cookies expire — without this, a future stale-cookie failure
+        would look identical to "never configured" and require re-deriving the
+        whole diagnosis from scratch (see docs/x-cookies-setup.md for why this
+        matters). Best-effort, never raises; not_configured/missing_auth_cookie
+        aren't the same failure and get different guidance downstream.
+
+        Returns one of: "not_configured", "missing_auth_cookie", "expired", "ok".
+        """
+        cookies_opts = self._x_cookies_opts()
+        if not cookies_opts.get("cookiefile"):
+            return "not_configured"
+
+        cookies = self._netscape_cookiefile_to_playwright(cookies_opts["cookiefile"])
+        auth_cookie = next((c for c in cookies if c["name"] == "auth_token"), None)
+        if not auth_cookie:
+            # Exported while logged out, wrong domain, or a corrupted/malformed
+            # export — X_COOKIES_B64 is set, but there's no usable session in it.
+            return "missing_auth_cookie"
+
+        if auth_cookie["expires"] > 0 and auth_cookie["expires"] < time.time():
+            return "expired"
+
+        return "ok"
+
     def _get_yt_dlp_retries(self) -> int:
         """Get number of retry attempts for yt-dlp operations from environment variable."""
         try:
@@ -1002,9 +1028,19 @@ class IngestionService:
         # silently accepted as a successful extraction.
         is_login_wall = "JavaScript is disabled" in page_text or "Continue with phone" in page_text
         if is_login_wall:
+            # Distinguish *why* — "never configured" and "configured but stale"
+            # look identical from the outside otherwise, and conflating them is
+            # exactly what made this failure mode confusing to diagnose the first
+            # time (see docs/x-cookies-setup.md).
+            health = self._x_cookie_health()
+            guidance = {
+                "not_configured": "set X_COOKIES_B64 to enable",
+                "missing_auth_cookie": "X_COOKIES_B64 is set but has no valid session in it — re-export while logged in",
+                "expired": "X_COOKIES_B64 is set but the session has expired — re-export and update it",
+                "ok": "X_COOKIES_B64 looks valid but X still rejected the session — it may have been logged out remotely",
+            }.get(health, "set X_COOKIES_B64 to enable")
             raise ValueError(
-                f"{self.X_LOGIN_REQUIRED_MARKER} X requires a signed-in session to view Articles "
-                f"— set X_COOKIES_B64 to enable ({url})"
+                f"{self.X_LOGIN_REQUIRED_MARKER} X requires a signed-in session to view Articles — {guidance} ({url})"
             )
 
         if not page.get("content") or len(page["content"].strip()) < 20:

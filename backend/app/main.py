@@ -922,6 +922,18 @@ async def startup_event():
     # Add user_id column to contexts table if missing (Postgres migration)
     _migrate_add_user_id_to_contexts()
 
+    # X Article extraction needs a real logged-in session (confirmed: X has no
+    # unauthenticated path to Article content at all, see docs/x-cookies-setup.md)
+    # — log cookie health once here so staleness is visible in deploy logs
+    # instead of only surfacing as a confusing card failure days later.
+    # Diagnostic only — never blocks startup, X Articles are one content type
+    # among many.
+    try:
+        x_cookie_status = ingestion_service._x_cookie_health()
+        logger.info("x_cookie_health", status=x_cookie_status)
+    except Exception as e:
+        logger.warning("x_cookie_health_check_failed", error=str(e))
+
     # Usage v2: reconcile UserUsageDB.plan against live Stripe state before the
     # entitlement gate is allowed to enforce anything (see core/entitlements.py).
     # Defaults on — set FEATURE_USAGE_V2=false to roll back to the v1 token system
