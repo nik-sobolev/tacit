@@ -40,8 +40,10 @@ logger = structlog.get_logger()
 def _usage_v2_enforcing() -> bool:
     """Whether this module is allowed to actually block a request. Read fresh on
     every call (not cached at import time) so tests and ops can flip the env var
-    without a process restart. See api/features.py for the matching frontend flag."""
-    return os.getenv("FEATURE_USAGE_V2", "false").lower() == "true"
+    without a process restart. See api/features.py for the matching frontend flag.
+    Defaults on — set FEATURE_USAGE_V2=false to roll back to core/usage.py's
+    token-based enforcement (see docs/usage-v2-migration.md)."""
+    return os.getenv("FEATURE_USAGE_V2", "true").lower() == "true"
 
 # Default period length for users with no Stripe subscription to anchor to (free
 # tier) or on first-ever period creation before any webhook has landed. Paid tiers

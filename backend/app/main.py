@@ -924,8 +924,9 @@ async def startup_event():
 
     # Usage v2: reconcile UserUsageDB.plan against live Stripe state before the
     # entitlement gate is allowed to enforce anything (see core/entitlements.py).
-    # Gated behind the flag so it never calls the Stripe API while usage v2 is off.
-    if os.getenv("FEATURE_USAGE_V2", "false").lower() == "true":
+    # Defaults on — set FEATURE_USAGE_V2=false to roll back to the v1 token system
+    # (see docs/usage-v2-migration.md).
+    if os.getenv("FEATURE_USAGE_V2", "true").lower() == "true":
         _migrate_backfill_tier_from_stripe()
 
     # Reset interrupted nodes back to pending (don't mark as error — they'll be retried)

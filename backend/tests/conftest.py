@@ -48,5 +48,7 @@ def usage_v2_on(monkeypatch):
 
 @pytest.fixture()
 def usage_v2_off(monkeypatch):
-    monkeypatch.delenv("FEATURE_USAGE_V2", raising=False)
+    # The flag now defaults to "true" (see docs/usage-v2-migration.md) — this
+    # fixture must explicitly force it off, not just unset it.
+    monkeypatch.setenv("FEATURE_USAGE_V2", "false")
     yield

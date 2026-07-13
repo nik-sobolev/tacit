@@ -11,7 +11,7 @@ def get_flags() -> dict:
     return {
         "notes_enabled": os.getenv("FEATURE_NOTES", "false").lower() == "true",
         "people_enabled": os.getenv("FEATURE_PEOPLE", "false").lower() == "true",
-        "usage_v2_enabled": os.getenv("FEATURE_USAGE_V2", "false").lower() == "true",
+        "usage_v2_enabled": os.getenv("FEATURE_USAGE_V2", "true").lower() == "true",
     }
 
 
