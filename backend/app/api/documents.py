@@ -10,6 +10,7 @@ from ..models.document import Document, DocumentType, DocumentSearchQuery
 from ..services.document_service import DocumentProcessor
 from ..db.database import get_database, DocumentDB
 from ..core.auth import get_current_user
+from ..core.entitlements import check_and_reserve, record_action
 
 router = APIRouter()
 
@@ -28,6 +29,8 @@ async def upload_document(
 ):
     """Upload a document to the knowledge base"""
     try:
+        check_and_reserve(current_user["id"], "save")  # never blocks — see api/ingest.py
+
         engine = request.app.state.engine
 
         # Validate file type
@@ -85,6 +88,8 @@ async def upload_document(
         session.add(db_document)
         session.commit()
         session.close()
+
+        record_action(current_user["id"], "save", dedupe_key=f"save:{document_id}")
 
         chunks = extraction_result['chunks']
         for chunk in chunks:

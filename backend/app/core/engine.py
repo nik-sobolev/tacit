@@ -144,10 +144,15 @@ class TacitEngine:
         Returns:
             Dict with response, sources, and metadata
         """
-        # Check token limit before processing
+        # Check token limit before processing (usage v1 — remains the real enforcer
+        # until FEATURE_USAGE_V2 is on; see core/entitlements.py's module docstring)
+        message_id = str(uuid.uuid4())
         if user_id:
             from .usage import check_limit
             check_limit(user_id, email=user_email)
+
+            from .entitlements import check_and_reserve
+            check_and_reserve(user_id, "query", email=user_email)
 
         # Ensure a DB record exists for this session, tagged with user_id from the start
         self._ensure_conversation(session_id, user_id=user_id)
@@ -218,10 +223,16 @@ class TacitEngine:
             enable_ingest_tool=enable_ingest_tool,
         )
 
-        # Record token usage
+        # Record token usage (usage v1 — kept running through the shadow period)
         if user_id and usage:
             from .usage import record_usage
             record_usage(user_id, usage.input_tokens, usage.output_tokens)
+
+            from .entitlements import record_action
+            record_action(
+                user_id, "query", dedupe_key=f"query:{session_id}:{message_id}",
+                input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+            )
 
         # Persist + cache the assistant response
         mode_str = mode.value if hasattr(mode, "value") else str(mode)

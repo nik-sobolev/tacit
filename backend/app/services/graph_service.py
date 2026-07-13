@@ -166,7 +166,7 @@ class GraphService:
         """Run the structured-extraction prompt against the configured provider."""
         prompt = self._build_agent_prompt(node, existing_summary, existing_categories)
         if self.summarization_provider == "gemini":
-            return self._call_gemini(prompt)
+            return self._call_gemini(prompt, node)
         return self._call_claude(prompt, node)
 
     def _build_agent_prompt(self, node: NodeDB, existing_summary: str, existing_categories: List[str] = None) -> str:
@@ -232,10 +232,16 @@ Rules:
             )
             text = response.content[0].text.strip()
 
-            # Record token usage
+            # Record token usage (usage v1 — kept running through the shadow period)
             if node.user_id and response.usage:
                 from ..core.usage import record_usage
                 record_usage(node.user_id, response.usage.input_tokens, response.usage.output_tokens)
+
+                from ..core.entitlements import record_action
+                record_action(
+                    node.user_id, "synthesis", dedupe_key=f"synthesis:{node.id}",
+                    input_tokens=response.usage.input_tokens, output_tokens=response.usage.output_tokens,
+                )
 
             return self._parse_json_response(text)
         except Exception as e:
@@ -248,7 +254,7 @@ Rules:
             logger.error("agent_call_error", provider="claude", error=str(e))
             raise
 
-    def _call_gemini(self, prompt: str) -> Dict[str, Any]:
+    def _call_gemini(self, prompt: str, node: NodeDB) -> Dict[str, Any]:
         try:
             response = httpx.post(
                 GEMINI_URL,
@@ -266,6 +272,18 @@ Rules:
                 raise ValueError(f"Gemini returned no candidates: {json.dumps(data)[:300]}")
             parts = candidates[0].get("content", {}).get("parts", [])
             text = "".join(p.get("text", "") for p in parts)
+
+            # Record synthesis usage — this path had zero tracking before usage v2
+            # (the token-based usage.py never covered Gemini calls at all).
+            if node.user_id:
+                usage_meta = data.get("usageMetadata", {})
+                from ..core.entitlements import record_action
+                record_action(
+                    node.user_id, "synthesis", dedupe_key=f"synthesis:{node.id}",
+                    input_tokens=usage_meta.get("promptTokenCount", 0),
+                    output_tokens=usage_meta.get("candidatesTokenCount", 0),
+                )
+
             return self._parse_json_response(text)
         except Exception as e:
             # Same reasoning as _call_claude: let this propagate to process_node's

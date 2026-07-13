@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from ..db.database import get_database, NodeDB
 from ..core.auth import get_current_user
+from ..core.entitlements import check_and_reserve, record_action
 
 # process_node() runs in a background thread with no persistence or resume —
 # a server restart (e.g. a deploy) mid-processing orphans the node forever at
@@ -39,6 +40,10 @@ async def ingest_url(request: Request, body: IngestRequest, current_user: dict =
     """Ingest a URL for the current user."""
     db = get_database()
     user_id = current_user["id"]
+
+    # "save" is never hard-gated (see core/entitlements.py) — this call only
+    # exists to record the action for shadow-mode validation before cutover.
+    check_and_reserve(user_id, "save")
 
     # Per-user duplicate check
     with db.session_scope() as dup_session:
@@ -98,7 +103,22 @@ async def ingest_url(request: Request, body: IngestRequest, current_user: dict =
                 except Exception as inner:
                     logger.error("graph_process_status_update_failed", node_id=node_id, error=str(inner))
 
-        loop.run_in_executor(None, _safe_process, node.id)
+        record_action(user_id, "save", dedupe_key=f"save:{node.id}")
+
+        # process_node() runs detached in a background thread with no path back to
+        # this request, so it can never itself return a 402 — the synthesis cap must
+        # be checked here, before scheduling it. Saving never blocks (see check above);
+        # only the downstream AI enrichment is skipped if the user is capped.
+        try:
+            check_and_reserve(user_id, "synthesis")
+            loop.run_in_executor(None, _safe_process, node.id)
+        except HTTPException:
+            with db.session_scope() as s:
+                n = s.query(NodeDB).filter_by(id=node.id).first()
+                if n:
+                    n.status = "saved_no_synthesis"
+            node.status = "saved_no_synthesis"
+            logger.info("synthesis_skipped_capped", node_id=node.id, user_id=user_id)
 
         return {
             "node_id": node.id,
@@ -124,6 +144,8 @@ async def create_note(body: NoteRequest, current_user: dict = Depends(get_curren
     if not body.content.strip():
         raise HTTPException(status_code=400, detail="Note content cannot be empty")
 
+    check_and_reserve(current_user["id"], "save")  # never blocks — see ingest_url()
+
     db = get_database()
     node_id = str(uuid.uuid4())
     title = (body.title or "").strip() or body.content[:80].split("\n")[0]
@@ -143,6 +165,8 @@ async def create_note(body: NoteRequest, current_user: dict = Depends(get_curren
                 created_at=datetime.utcnow(),
                 processed_at=datetime.utcnow(),
             ))
+
+        record_action(current_user["id"], "save", dedupe_key=f"save:{node_id}")
 
         return {
             "node_id": node_id,

@@ -6,6 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Depends
 
 from ..core.auth import get_current_user
+from ..core.entitlements import check_and_reserve, record_action
 from ..db.database import get_database, NodeDB
 from ..services.storage_service import upload_image as store_image
 
@@ -20,6 +21,8 @@ async def upload_image(
 ):
     """Upload an image and create a canvas node"""
     try:
+        check_and_reserve(current_user["id"], "save")  # never blocks — see api/ingest.py
+
         if not file.filename:
             raise HTTPException(status_code=400, detail="No filename provided")
 
@@ -56,6 +59,8 @@ async def upload_image(
 
         with db.session_scope() as session:
             session.add(node)
+
+        record_action(current_user["id"], "save", dedupe_key=f"save:{node_id}")
 
         return {
             "node_id": node_id,
