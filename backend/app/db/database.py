@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, DateTime, Text, JSON, ForeignKey, event, text
+from sqlalchemy import create_engine, Column, String, Integer, Float, Boolean, DateTime, Text, JSON, ForeignKey, event, text, UniqueConstraint
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -89,6 +89,78 @@ class UserUsageDB(Base):
     stripe_customer_id     = Column(String, nullable=True)
     stripe_subscription_id = Column(String, nullable=True)
     updated_at             = Column(DateTime, default=datetime.utcnow)
+
+
+class UsagePeriodDB(Base):
+    """Human-unit usage counters for one user, one billing cycle (usage v2).
+    Additive alongside UserUsageDB (token/plan/Stripe-ID data) — does not replace it.
+    period_start/period_end come from Stripe's current_period_start/end, not calendar
+    month, so counters reset on the user's actual billing-cycle boundary."""
+    __tablename__ = "usage_periods"
+    __table_args__ = (UniqueConstraint("user_id", "period_start", name="uq_usage_period_user_start"),)
+
+    id                    = Column(String, primary_key=True)   # uuid4
+    user_id               = Column(String, index=True, nullable=False)
+    period_start          = Column(DateTime, nullable=False)
+    period_end            = Column(DateTime, nullable=False)
+    tier                  = Column(String(20), nullable=False)  # "free" | "core" | "operator" | "superadmin"
+
+    saves_count           = Column(Integer, default=0)
+    queries_count         = Column(Integer, default=0)
+    synthesis_count       = Column(Integer, default=0)
+    digests_count         = Column(Integer, default=0)
+    agent_runs_count      = Column(Integer, default=0)
+
+    # Server-side-only cost tracking for margin monitoring — never returned to the frontend.
+    estimated_cost_cents  = Column(Integer, default=0)
+
+    created_at            = Column(DateTime, default=datetime.utcnow)
+    updated_at            = Column(DateTime, default=datetime.utcnow)
+
+
+class UsageEventDB(Base):
+    """Append-only idempotency ledger for usage v2. One row per successfully-counted
+    action. The (user_id, dedupe_key) unique constraint is what makes increments
+    idempotent under client retries or double-fires."""
+    __tablename__ = "usage_events"
+    __table_args__ = (UniqueConstraint("user_id", "dedupe_key", name="uq_usage_event_user_dedupe"),)
+
+    id            = Column(String, primary_key=True)   # uuid4
+    user_id       = Column(String, index=True, nullable=False)
+    category      = Column(String(20), nullable=False)  # "save"|"query"|"synthesis"|"digest"|"agent_run"
+    dedupe_key    = Column(String(200), nullable=False)
+    period_id     = Column(String, index=True, nullable=False)  # references usage_periods.id (no FK — matches
+                                                                  # this codebase's convention of manual filtered
+                                                                  # queries instead of ORM relationships)
+    tokens_input  = Column(Integer, default=0)   # server-side only, never exposed to the frontend
+    tokens_output = Column(Integer, default=0)   # server-side only
+    cost_cents    = Column(Integer, default=0)   # server-side only
+    created_at    = Column(DateTime, default=datetime.utcnow)
+
+
+class UsageAuditLogDB(Base):
+    """Append-only audit trail for usage v2: tier changes and cap events. Never
+    updated or deleted after insert — support/dispute record."""
+    __tablename__ = "usage_audit_log"
+
+    id          = Column(String, primary_key=True)  # uuid4
+    user_id     = Column(String, index=True, nullable=False)
+    event_type  = Column(String(30), nullable=False)  # "tier_changed"|"cap_warned"|"cap_hit"|"tier_reconciled"
+    from_value  = Column(String(50), nullable=True)
+    to_value    = Column(String(50), nullable=True)
+    source      = Column(String(30), nullable=False)   # "stripe_webhook"|"recovery_endpoint"|"enforcement"|"migration"
+    detail      = Column(Text, nullable=True)           # short human-readable note — no user content, ever
+    created_at  = Column(DateTime, default=datetime.utcnow)
+
+
+class StripeWebhookEventDB(Base):
+    """Records every Stripe webhook event ID successfully processed, so a retried
+    delivery (Stripe resends on non-2xx or timeout) is a no-op on replay."""
+    __tablename__ = "stripe_webhook_events"
+
+    event_id     = Column(String, primary_key=True)   # Stripe's event.id, globally unique
+    event_type   = Column(String(50), nullable=False)
+    processed_at = Column(DateTime, default=datetime.utcnow)
 
 
 class NodeDB(Base):
