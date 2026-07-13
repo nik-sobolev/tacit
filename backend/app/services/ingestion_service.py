@@ -4,6 +4,7 @@ import os
 import re
 import uuid
 import tempfile
+import threading
 import structlog
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -15,6 +16,15 @@ import time
 from ..db.database import get_database, NodeDB
 
 logger = structlog.get_logger()
+
+# Caps concurrent Playwright browser launches across all in-flight requests —
+# POST /api/ingest dispatches through a thread pool (loop.run_in_executor), so
+# without this, simultaneous saves that hit the browser fallback (tweets,
+# X Articles) could each launch their own Chromium instance at once, compounding
+# the memory pressure that's the whole reason that fallback stays gated off by
+# default. One process-wide semaphore, not per-instance, since IngestionService
+# itself isn't a singleton but the underlying resource risk (host memory) is.
+_PLAYWRIGHT_LAUNCH_SEMAPHORE = threading.Semaphore(1)
 
 
 def detect_url_type(url: str) -> str:
@@ -31,6 +41,8 @@ def detect_url_type(url: str) -> str:
         return "instagram"
     if host in ("x.com", "twitter.com", "t.co"):
         return "tweet"
+    if host in ("open.spotify.com", "spotify.com") or "spotify.com" in host:
+        return "podcast"
     return "webpage"
 
 
@@ -53,6 +65,8 @@ class IngestionService:
                 data = self._extract_social_video(url)
             elif content_type == "tweet":
                 data = self._extract_tweet(url)
+            elif content_type == "podcast":
+                data = self._extract_spotify(url)
             else:
                 data = self._extract_webpage(url)
         except Exception as e:
@@ -655,6 +669,13 @@ class IngestionService:
         node reach LLM enrichment (which previously fabricated a plausible-looking
         title from nothing).
         """
+        # X Articles (x.com's long-form post format) use a distinct URL shape
+        # that neither the GraphQL nor oEmbed tweet extractors understand at all
+        # (confirmed: yt-dlp's Twitter extractor raises "Unsupported URL" for
+        # these) — check before spending a request on either.
+        if re.search(r"/i/article/\d+", url):
+            return self._extract_x_article(url)
+
         primary = self._extract_tweet_graphql(url)
         if primary.get("not_found"):
             # Authoritative — X's own API has no record of this tweet at all, so
@@ -668,6 +689,14 @@ class IngestionService:
         author = text_source.get("author", "")
         handle = text_source.get("handle", "")
         text = text_source.get("text", "")
+        # An X Article teaser tweet has no real body — the GraphQL API returns
+        # just the auto-generated t.co link to the article itself (which we don't
+        # fetch), not empty text. Treat a bare-link-only "text" the same as no
+        # text at all, so this hits the same known-gap handling below instead of
+        # silently creating a card whose only content is a shortened URL.
+        if re.fullmatch(r"https?://t\.co/\w+", text.strip()):
+            logger.info("tweet_text_is_bare_link_stub", url=url, stub=text)
+            text = ""
 
         if not text and not transcript_text:
             # Neither GraphQL nor oEmbed gave real body text (media-only tweet with
@@ -905,6 +934,183 @@ class IngestionService:
             logger.info("tweet_video_extraction_skip", url=url, error=str(e))
             return "", [], video_meta
 
+    def _extract_x_article(self, url: str) -> Dict[str, Any]:
+        """Extract an X Article (x.com's long-form post format, x.com/i/article/{id}).
+
+        No API path exists for this content type — confirmed yt-dlp's Twitter
+        extractor raises "Unsupported URL" for it, and oEmbed returns only the
+        auto-generated t.co stub link a teaser tweet points at, not real content.
+        The only viable mechanism is rendering the page directly via Playwright.
+
+        Gated behind X_ARTICLE_PLAYWRIGHT_FALLBACK (default on) — narrower blast
+        radius than the blanket TWEET_PLAYWRIGHT_FALLBACK (which stays off) since
+        this only fires for the Article URL shape specifically, not every tweet.
+        See _PLAYWRIGHT_LAUNCH_SEMAPHORE and the try/finally browser.close() fix
+        in _extract_webpage_browser() — the safety hardening that came with
+        enabling this path.
+        """
+        if os.getenv("X_ARTICLE_PLAYWRIGHT_FALLBACK", "true").lower() not in ("1", "true", "yes"):
+            raise ValueError(f"X Article rendering is disabled ({url})")
+
+        # use_proxy=False: same reasoning as the tweet Playwright fallback —
+        # routing Playwright's browser through the residential proxy hangs at
+        # the Chromium level, not a simple HTTP request.
+        # cookies_opts: confirmed live that X shows an anonymous/headless visitor
+        # a "JavaScript is disabled" login-wall page for Articles specifically
+        # (unlike regular tweets, which are often viewable logged-out) — pass
+        # X_COOKIES_B64 (if configured) so this can render as a logged-in session.
+        page = self._extract_webpage_browser(url, use_proxy=False, cookies_opts=self._x_cookies_opts())
+
+        page_text = (page.get("content") or "") + " " + (page.get("title") or "")
+        is_x_error_page = any(marker in page_text for marker in (
+            "Post Not Found", "This page doesn’t exist", "This page doesn't exist",
+            "We're unable to show this content", "content may be private, deleted",
+        ))
+        if is_x_error_page:
+            # Same marker as a deleted tweet — same honest, calm frontend
+            # treatment applies (see TWEET_NOT_FOUND_MARKER, app.js's card render).
+            raise ValueError(f"{self.TWEET_NOT_FOUND_MARKER} This post is no longer available on X ({url})")
+
+        # Confirmed live: an anonymous/headless visitor gets X's "JavaScript is
+        # disabled in this browser" notice plus a sign-in prompt instead of the
+        # actual article — this is content-shaped enough to slip past a bare
+        # length check, so it needs its own explicit detection rather than being
+        # silently accepted as a successful extraction.
+        is_login_wall = "JavaScript is disabled" in page_text or "Continue with phone" in page_text
+        if is_login_wall:
+            raise ValueError(
+                f"X requires a signed-in session to view this Article — set X_COOKIES_B64 to enable ({url})"
+            )
+
+        if not page.get("content") or len(page["content"].strip()) < 20:
+            raise ValueError(f"Could not extract article content from {url}")
+
+        page["metadata"] = {**page.get("metadata", {}), "provider": "x_article", "article_url": url}
+        return page
+
+    # ==================== SPOTIFY (PODCAST EPISODES) ====================
+
+    def _extract_spotify(self, url: str) -> Dict[str, Any]:
+        """Extract a Spotify podcast episode: title/thumbnail via Spotify's public
+        oEmbed (no auth), then the actual audio via Apple's public podcast search
+        (no auth) — podcasts are RSS-distributed and DRM-free regardless of which
+        app surfaces them, so the same episode's audio is available there without
+        ever touching Spotify's authenticated Web API. Transcribed via the
+        existing Whisper pipeline (same one YouTube/TikTok/tweets already use).
+
+        Only /episode/{id} URLs are supported — tracks/albums/playlists have no
+        transcript to extract (music isn't spoken content) and are out of scope."""
+        if not re.search(r"/episode/[a-zA-Z0-9]+", url):
+            raise ValueError(
+                f"Spotify tracks/albums/playlists aren't supported yet — paste a podcast episode link ({url})"
+            )
+
+        oembed_title = ""
+        thumbnail_url = None
+        try:
+            oembed_url = f"https://open.spotify.com/oembed?url={url}"
+            with httpx.Client(timeout=10, follow_redirects=True) as client:
+                resp = client.get(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
+                resp.raise_for_status()
+                data = resp.json()
+                oembed_title = data.get("title", "")
+                thumbnail_url = data.get("thumbnail_url")
+        except Exception as e:
+            logger.warning("spotify_oembed_failed", url=url, error=str(e))
+
+        if not oembed_title:
+            raise ValueError(f"Could not fetch episode metadata from Spotify ({url})")
+
+        episode = self._find_podcast_episode_audio(oembed_title)
+        if not episode:
+            raise ValueError(f"Could not locate this episode's audio via public podcast feeds ({url})")
+
+        text, segments = self._download_and_transcribe_audio(episode["episode_url"])
+        if not text or len(text.strip()) < 10:
+            raise ValueError(f"Transcription failed or produced no usable text ({url})")
+
+        show_name = episode.get("show_name", "")
+        title = f"{show_name}: {oembed_title}" if show_name else oembed_title
+
+        meta: Dict[str, Any] = {
+            "provider": "spotify_podcast",
+            "episode_url": url,
+            "show": show_name,
+            "audio_source": episode["episode_url"],
+        }
+        if segments:
+            meta["transcript_segments"] = segments
+
+        return {
+            "title": title[:400],
+            "content": text,
+            "thumbnail_url": thumbnail_url,
+            "metadata": meta,
+        }
+
+    def _find_podcast_episode_audio(self, episode_title: str) -> Optional[Dict[str, str]]:
+        """Find a podcast episode's direct, public audio URL via Apple's public
+        podcast episode search (itunes.apple.com/search, no auth needed). Returns
+        None if no confidently-matching episode is found — a weak match risks
+        transcribing the wrong episode entirely, which is worse than no transcript."""
+        import difflib
+
+        try:
+            with httpx.Client(timeout=10) as client:
+                resp = client.get(
+                    "https://itunes.apple.com/search",
+                    params={"term": episode_title, "media": "podcast", "entity": "podcastEpisode", "limit": 5},
+                    headers={"User-Agent": "Mozilla/5.0"},
+                )
+                resp.raise_for_status()
+                results = resp.json().get("results", [])
+        except Exception as e:
+            logger.warning("podcast_episode_search_failed", title=episode_title, error=str(e))
+            return None
+
+        best, best_score = None, 0.0
+        for r in results:
+            score = difflib.SequenceMatcher(None, (r.get("trackName") or "").lower(), episode_title.lower()).ratio()
+            if score > best_score:
+                best, best_score = r, score
+
+        if not best or best_score < 0.7:
+            logger.info("podcast_episode_no_confident_match", title=episode_title, best_score=best_score)
+            return None
+
+        audio_url = best.get("episodeUrl") or best.get("previewUrl")
+        if not audio_url:
+            return None
+
+        return {"episode_url": audio_url, "show_name": best.get("collectionName", "")}
+
+    def _download_and_transcribe_audio(self, audio_url: str):
+        """Download a direct audio URL and transcribe it via the existing
+        local-then-cloud Whisper fallback (same order _extract_tweet_video()
+        already uses). Podcast episodes can run multiple hours — this has no
+        separate length cap, matching the existing YouTube/tweet transcription
+        paths, which don't cap duration either; long episodes cost proportionally
+        more compute/cloud-transcription spend, worth watching after shipping."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio_path = os.path.join(tmpdir, "episode_audio.mp3")
+            with httpx.stream(
+                "GET", audio_url, timeout=60, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}
+            ) as resp:
+                resp.raise_for_status()
+                with open(audio_path, "wb") as f:
+                    for chunk in resp.iter_bytes(chunk_size=8192):
+                        f.write(chunk)
+
+            try:
+                text, segments = self._transcribe(audio_path)
+                if not text or len(text.strip()) < 10:
+                    raise ValueError("Local transcription empty or too short")
+            except Exception as e:
+                logger.warning("podcast_local_transcription_failed", error=str(e))
+                text, segments = self._transcribe_cloud(audio_path)
+
+            return text, segments
+
     # ==================== WEB PAGES ====================
 
     def _extract_webpage(self, url: str) -> Dict[str, Any]:
@@ -963,12 +1169,47 @@ class IngestionService:
             # Fall back to browser rendering
             return self._extract_webpage_browser(url)
 
-    def _extract_webpage_browser(self, url: str, use_proxy: bool = False) -> Dict[str, Any]:
+    @staticmethod
+    def _netscape_cookiefile_to_playwright(cookie_path: str) -> list:
+        """Parse a Netscape-format cookie file (the shape _x_cookies_opts() etc.
+        already write for yt-dlp) into Playwright's context.add_cookies() shape.
+        Best-effort — malformed lines are skipped, never raises."""
+        cookies = []
+        try:
+            with open(cookie_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or (line.startswith("#") and not line.startswith("#HttpOnly_")):
+                        continue
+                    http_only = line.startswith("#HttpOnly_")
+                    if http_only:
+                        line = line[len("#HttpOnly_"):]
+                    parts = line.split("\t")
+                    if len(parts) != 7:
+                        continue
+                    domain, _flag, path, secure, expires, name, value = parts
+                    cookies.append({
+                        "name": name, "value": value, "domain": domain, "path": path or "/",
+                        "expires": float(expires) if expires.isdigit() and expires != "0" else -1,
+                        "httpOnly": http_only, "secure": secure.upper() == "TRUE",
+                    })
+        except Exception as e:
+            logger.warning("netscape_cookie_parse_failed", error=str(e))
+        return cookies
+
+    def _extract_webpage_browser(self, url: str, use_proxy: bool = False, cookies_opts: dict = None) -> Dict[str, Any]:
         """Extract webpage content using Playwright headless browser.
 
         use_proxy routes the browser through the residential proxy (same one used
         for YouTube/yt-dlp) — for sites like x.com that block datacenter IPs.
         Ordinary webpage rendering doesn't need this and leaves it off by default.
+
+        cookies_opts, if given, is the {"cookiefile": path} shape the *_cookies_opts()
+        helpers already produce for yt-dlp (Netscape format) — converted and injected
+        into the browser context so pages that gate content behind a login wall for
+        anonymous/headless visitors (confirmed: X Articles do this) can render as a
+        logged-in session would. Best-effort: if no cookies are configured, or parsing
+        fails, extraction proceeds anonymously exactly as before, not a hard failure.
         """
         parsed = urlparse(url)
         domain = parsed.netloc.replace("www.", "")
@@ -988,18 +1229,38 @@ class IngestionService:
                         "password": parsed_proxy.password,
                     }
 
-            with sync_playwright() as p:
-                browser = p.chromium.launch(**launch_kwargs)
-                page = browser.new_page(
-                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                )
-                # Use domcontentloaded — sites like x.com never reach networkidle
-                page.goto(url, wait_until="domcontentloaded", timeout=15000)
-                page.wait_for_timeout(3000)
+            playwright_cookies = []
+            if cookies_opts and cookies_opts.get("cookiefile"):
+                playwright_cookies = self._netscape_cookiefile_to_playwright(cookies_opts["cookiefile"])
 
-                title = page.title()
-                html = page.content()
-                browser.close()
+            _PLAYWRIGHT_LAUNCH_SEMAPHORE.acquire()
+            try:
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(**launch_kwargs)
+                    try:
+                        context = browser.new_context(
+                            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                        )
+                        if playwright_cookies:
+                            try:
+                                context.add_cookies(playwright_cookies)
+                            except Exception as e:
+                                logger.warning("playwright_cookie_injection_failed", url=url, error=str(e))
+                        page = context.new_page()
+                        # Use domcontentloaded — sites like x.com never reach networkidle
+                        page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                        page.wait_for_timeout(3000)
+
+                        title = page.title()
+                        html = page.content()
+                    finally:
+                        # Must always run — a goto() timeout or any other exception
+                        # here previously left the Chromium process running forever,
+                        # a real leak that compounds memory usage over repeated
+                        # failures (see _PLAYWRIGHT_LAUNCH_SEMAPHORE's docstring).
+                        browser.close()
+            finally:
+                _PLAYWRIGHT_LAUNCH_SEMAPHORE.release()
 
             import trafilatura
             content = trafilatura.extract(html, include_comments=False, include_tables=True)

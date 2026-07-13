@@ -2740,6 +2740,7 @@ function getTypeIcon(type) {
         document: '📄',
         text: '✎',
         image: '🖼',
+        podcast: '🎙',
     };
     return icons[type] || '◉';
 }
