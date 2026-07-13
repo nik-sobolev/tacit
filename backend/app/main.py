@@ -922,6 +922,12 @@ async def startup_event():
     # Add user_id column to contexts table if missing (Postgres migration)
     _migrate_add_user_id_to_contexts()
 
+    # Usage v2: reconcile UserUsageDB.plan against live Stripe state before the
+    # entitlement gate is allowed to enforce anything (see core/entitlements.py).
+    # Gated behind the flag so it never calls the Stripe API while usage v2 is off.
+    if os.getenv("FEATURE_USAGE_V2", "false").lower() == "true":
+        _migrate_backfill_tier_from_stripe()
+
     # Reset interrupted nodes back to pending (don't mark as error — they'll be retried)
     _recover_stuck_nodes()
 
@@ -1013,6 +1019,60 @@ def _migrate_add_user_id_to_contexts():
                     pass  # Column already exists
     except Exception as e:
         logger.warning("migrate_schema_failed", error=str(e))
+
+
+def _migrate_backfill_tier_from_stripe():
+    """Usage v2: for every UserUsageDB row with a stripe_subscription_id, fetch the
+    live Stripe subscription and correct usage.plan if it disagrees with the DB —
+    catches drift from any webhook that was missed before usage v2 shipped. Writes
+    a UsageAuditLogDB row (source="migration") for every correction made.
+
+    Idempotent and safe to run on every startup (only paying users are checked, a
+    small set) — this is deliberately NOT a one-shot migration, it doubles as
+    ongoing drift correction. Must complete before real users are gated by the new
+    entitlement checks, so no Core/Operator subscriber is briefly misread as
+    free-tier during the transition (see docs/usage-v2-migration.md)."""
+    from uuid import uuid4
+    from .db.database import get_database, UserUsageDB, UsageAuditLogDB
+    from .core import tiers
+    import stripe
+
+    stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+    if not stripe.api_key:
+        logger.warning("backfill_tier_skipped_no_stripe_key")
+        return
+
+    try:
+        db = get_database()
+        with db.session_scope() as session:
+            rows = session.query(UserUsageDB).filter(UserUsageDB.stripe_subscription_id.isnot(None)).all()
+            corrected = 0
+            for usage in rows:
+                try:
+                    subscription = stripe.Subscription.retrieve(usage.stripe_subscription_id)
+                    if subscription.get("status") != "active":
+                        live_tier = "free"
+                    else:
+                        items = subscription.get("items", {}).get("data", [])
+                        price_id = items[0]["price"]["id"] if items else None
+                        live_tier = tiers.price_id_to_tier(price_id) if price_id else "free"
+                except Exception as e:
+                    logger.warning("backfill_tier_lookup_failed", user_id=usage.user_id, error=str(e))
+                    continue  # leave this user's plan untouched, don't guess
+
+                db_tier = tiers.normalize_tier(usage.plan)
+                if db_tier != live_tier and usage.plan != "superadmin":
+                    session.add(UsageAuditLogDB(
+                        id=str(uuid4()), user_id=usage.user_id, event_type="tier_reconciled",
+                        from_value=usage.plan, to_value=live_tier, source="migration",
+                        detail="startup backfill vs live Stripe subscription state",
+                    ))
+                    usage.plan = live_tier
+                    corrected += 1
+            if corrected:
+                logger.info("backfill_tier_corrections_applied", count=corrected)
+    except Exception as e:
+        logger.error("backfill_tier_from_stripe_failed", error=str(e))
 
 
 def _reindex_missing_nodes():
