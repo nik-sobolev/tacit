@@ -657,6 +657,12 @@ class IngestionService:
     # rather than a real extraction failure — ingest.py checks for this to give
     # the node a distinct, calmer status than a generic processing error.
     TWEET_NOT_FOUND_MARKER = "TWEET_NOT_FOUND:"
+    # X Articles always require a signed-in session — confirmed universal, not
+    # specific to one Article, via a real (non-headless) browser request that
+    # X's own server redirects straight to a login page regardless of content.
+    # Distinct from TWEET_NOT_FOUND_MARKER: the content exists, we just can't
+    # read it without X_COOKIES_B64 configured — actionable, not permanent.
+    X_LOGIN_REQUIRED_MARKER = "X_LOGIN_REQUIRED:"
 
     def _extract_tweet(self, url: str) -> Dict[str, Any]:
         """Extract tweet content: full-text (GraphQL, falls back to oEmbed) +
@@ -690,12 +696,18 @@ class IngestionService:
         handle = text_source.get("handle", "")
         text = text_source.get("text", "")
         # An X Article teaser tweet has no real body — the GraphQL API returns
-        # just the auto-generated t.co link to the article itself (which we don't
-        # fetch), not empty text. Treat a bare-link-only "text" the same as no
-        # text at all, so this hits the same known-gap handling below instead of
-        # silently creating a card whose only content is a shortened URL.
+        # just the auto-generated t.co link to the article itself, not empty
+        # text. Resolve it: if it points at an Article, that IS the real content
+        # the user wants (confirmed live — this is exactly what a "paste this
+        # tweet" attempt on an Article-teaser actually means in practice, not a
+        # theoretical case). Any other bare link (a tweet that's just "check
+        # this out: http://...") gets treated as no text, same as before.
         if re.fullmatch(r"https?://t\.co/\w+", text.strip()):
             logger.info("tweet_text_is_bare_link_stub", url=url, stub=text)
+            resolved_url = self._resolve_short_link(text.strip())
+            if resolved_url and re.search(r"/i/article/\d+", resolved_url):
+                logger.info("tweet_links_to_x_article", url=url, article_url=resolved_url)
+                return self._extract_x_article(resolved_url)
             text = ""
 
         if not text and not transcript_text:
@@ -769,6 +781,18 @@ class IngestionService:
             "thumbnail_url": thumbnail_url,
             "metadata": meta,
         }
+
+    def _resolve_short_link(self, short_url: str) -> Optional[str]:
+        """Follow a t.co short link to its final destination. Best-effort —
+        returns None on any failure rather than raising, since this is only used
+        to check whether a bare-link tweet happens to point at an X Article."""
+        try:
+            with httpx.Client(timeout=8, follow_redirects=True) as client:
+                resp = client.head(short_url, headers={"User-Agent": "Mozilla/5.0"})
+                return str(resp.url)
+        except Exception as e:
+            logger.warning("short_link_resolve_failed", url=short_url, error=str(e))
+            return None
 
     def _extract_tweet_oembed(self, url: str) -> Dict[str, Any]:
         """Fetch tweet author/text via the public oEmbed endpoint. Returns {} on any failure
@@ -979,7 +1003,8 @@ class IngestionService:
         is_login_wall = "JavaScript is disabled" in page_text or "Continue with phone" in page_text
         if is_login_wall:
             raise ValueError(
-                f"X requires a signed-in session to view this Article — set X_COOKIES_B64 to enable ({url})"
+                f"{self.X_LOGIN_REQUIRED_MARKER} X requires a signed-in session to view Articles "
+                f"— set X_COOKIES_B64 to enable ({url})"
             )
 
         if not page.get("content") or len(page["content"].strip()) < 20:

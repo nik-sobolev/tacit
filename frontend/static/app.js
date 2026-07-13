@@ -479,12 +479,17 @@ function buildCardHTML(node) {
     if (isProcessing) {
         bodyHTML = `<div class="card-processing-indicator"><div class="spinner-small"></div><span>Processing…</span></div>`;
     } else if (isError) {
-        // A tweet (or other source) that's genuinely gone upstream isn't a Tacit
-        // failure — don't show it as one. Marker set server-side, see
-        // ingestion_service.py's TWEET_NOT_FOUND_MARKER.
-        const isUnavailable = (node.error_message || '').startsWith('TWEET_NOT_FOUND:');
+        // A tweet/Article that's genuinely gone, or gated behind an X login,
+        // isn't a Tacit failure — don't show either as one. Markers set
+        // server-side, see ingestion_service.py's TWEET_NOT_FOUND_MARKER and
+        // X_LOGIN_REQUIRED_MARKER.
+        const msg = node.error_message || '';
+        const isUnavailable = msg.startsWith('TWEET_NOT_FOUND:');
+        const needsLogin = msg.startsWith('X_LOGIN_REQUIRED:');
         bodyHTML = isUnavailable
             ? `<div class="card-unavailable">No longer available on X</div>`
+            : needsLogin
+            ? `<div class="card-unavailable">Requires an X login to read — ask your admin to configure this</div>`
             : `<div class="card-error">⚠ Processing failed</div>`;
     } else {
         const summary = node.summary ? `<p class="card-summary">${escapeHtml(node.summary)}</p>` : '';
@@ -943,7 +948,9 @@ function pollNodeStatus(nodeId, attempts = 0) {
                     addMessage('assistant', msg);
                 }
             } else if (data.status === 'error') {
-                const isUnavailable = (data.error_message || '').startsWith('TWEET_NOT_FOUND:');
+                const msg = data.error_message || '';
+                const isUnavailable = msg.startsWith('TWEET_NOT_FOUND:');
+                const needsLogin = msg.startsWith('X_LOGIN_REQUIRED:');
                 const idx = graphData.nodes.findIndex(n => n.id === nodeId);
                 if (idx !== -1) {
                     graphData.nodes[idx] = { ...graphData.nodes[idx], status: 'error', error_message: data.error_message };
@@ -951,7 +958,12 @@ function pollNodeStatus(nodeId, attempts = 0) {
                 } else {
                     updateCardContent(nodeId, { status: 'error', error_message: data.error_message });
                 }
-                showToast(isUnavailable ? 'This post is no longer available on X' : 'Processing failed for this URL', 'error');
+                showToast(
+                    isUnavailable ? 'This post is no longer available on X'
+                    : needsLogin ? 'This Article requires an X login to read'
+                    : 'Processing failed for this URL',
+                    'error'
+                );
             } else {
                 pollNodeStatus(nodeId, attempts + 1);
             }
