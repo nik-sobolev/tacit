@@ -141,16 +141,32 @@ def _period_created_watermark(session, period_id: str) -> datetime:
     return period.created_at if period else datetime.min
 
 
-def get_usage_snapshot(user_id: str) -> dict:
+def get_usage_snapshot(user_id: str, email: str = None) -> dict:
     """Read-only usage summary for the current billing period, for GET /billing/status.
     No tokens or cost fields — those are server-side-only (see module docstring in
     api/billing.py's response-shape comment). This is a read, so it follows the same
     fail-open policy as check_and_reserve()'s non-expensive path: a DB error returns
-    an empty/zeroed snapshot rather than 500ing the user's usage meter."""
+    an empty/zeroed snapshot rather than 500ing the user's usage meter.
+
+    Superadmin bypass mirrors check_and_reserve()'s — same hardcoded email/user_id
+    sets in core/usage.py — so the display layer agrees with enforcement. Without
+    this, a superadmin whose UserUsageDB.plan row is still "free" (never explicitly
+    set to "superadmin") would see real Free-tier caps and upgrade buttons despite
+    never actually being capped."""
+    if _is_superadmin(user_id, email):
+        return {
+            "tier": "superadmin", "tier_label": "Unlimited", "period_end": None,
+            "usage": {c: {"used": 0, "limit": 0, "pct": 0.0, "warn": False} for c in tiers.CATEGORY_TO_COUNTER_FIELD},
+        }
     try:
         db = get_database()
         with db.session_scope() as session:
             tier = _resolve_tier(session, user_id)
+            if tier == "superadmin":
+                return {
+                    "tier": "superadmin", "tier_label": "Unlimited", "period_end": None,
+                    "usage": {c: {"used": 0, "limit": 0, "pct": 0.0, "warn": False} for c in tiers.CATEGORY_TO_COUNTER_FIELD},
+                }
             period = _get_or_create_current_period(session, user_id, tier)
             limits = tiers.get_limits(tier)
             usage = {}

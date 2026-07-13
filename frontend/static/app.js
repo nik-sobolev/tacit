@@ -1682,6 +1682,14 @@ async function loadUsageMeter() {
         const text = document.getElementById('usageText');
 
         if (featureFlags.usage_v2_enabled) {
+            if (data.tier === 'superadmin') {
+                text.textContent = 'Unlimited';
+                meter.style.display = 'block';
+                meter.style.cursor = 'pointer';
+                meter.onclick = () => openBillingPanel();
+                meter.classList.remove('near-limit', 'at-limit');
+                return;
+            }
             const categories = Object.entries(data.usage || {});
             if (!categories.length) { meter.style.display = 'none'; return; }
             // Header pill is compact — show whichever category is closest to its cap.

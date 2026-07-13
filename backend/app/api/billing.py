@@ -40,7 +40,7 @@ async def get_usage_status(current_user: dict = Depends(get_current_user)):
     server-side-only, see core/entitlements.py's get_usage_snapshot()."""
     if os.getenv("FEATURE_USAGE_V2", "true").lower() == "true":
         from ..core.entitlements import get_usage_snapshot
-        return get_usage_snapshot(current_user["id"])
+        return get_usage_snapshot(current_user["id"], email=current_user.get("email"))
 
     db = get_database()
 
