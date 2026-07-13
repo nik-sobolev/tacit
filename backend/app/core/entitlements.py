@@ -53,11 +53,17 @@ _DEFAULT_PERIOD_DAYS = 30
 
 
 def _is_superadmin(user_id: str, email: str = None) -> bool:
-    if user_id in SUPERADMIN_USER_IDS:
-        return True
-    if email and email.lower() in SUPERADMIN_EMAILS:
-        return True
-    return False
+    # .strip() defensively — a JWT claim or copy-pasted ID with incidental
+    # whitespace would otherwise silently fail an exact set-membership check.
+    normalized_id = (user_id or "").strip()
+    normalized_email = (email or "").strip().lower()
+    is_admin = normalized_id in SUPERADMIN_USER_IDS or normalized_email in SUPERADMIN_EMAILS
+    logger.info(
+        "superadmin_check",
+        user_id=normalized_id, email=normalized_email, is_admin=is_admin,
+        known_ids=sorted(SUPERADMIN_USER_IDS), known_emails=sorted(SUPERADMIN_EMAILS),
+    )
+    return is_admin
 
 
 def _resolve_tier(session, user_id: str) -> str:
