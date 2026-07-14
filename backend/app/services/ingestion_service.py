@@ -883,6 +883,30 @@ class IngestionService:
             return {}
         tweet_id = match.group(1)
 
+        # Try anonymously first — this is the proven-reliable path (X issues a
+        # guest token to any client, no account needed) and every tweet
+        # extraction depended on it working before X_COOKIES_B64 existed.
+        # Cookies are only tried as a second attempt, and only if anonymous
+        # didn't get a usable result — confirmed the hard way: a corrupted or
+        # invalid cookie file makes X's API reject the request outright with
+        # "Could not authenticate you", which is worse than not authenticating
+        # at all. Configuring cookies must never be able to break what already
+        # worked without them.
+        result = self._try_tweet_graphql(tweet_id, url, use_cookies=False)
+        if result.get("text") or result.get("not_found"):
+            return result
+
+        if self._x_cookies_opts().get("cookiefile"):
+            cookie_result = self._try_tweet_graphql(tweet_id, url, use_cookies=True)
+            if cookie_result.get("text") or cookie_result.get("not_found"):
+                return cookie_result
+
+        return result
+
+    def _try_tweet_graphql(self, tweet_id: str, url: str, use_cookies: bool) -> Dict[str, Any]:
+        """One attempt at _extract_tweet_graphql's actual GraphQL call, with or
+        without cookies. Never raises — returns {} on any failure so the caller
+        can decide whether to retry with different settings."""
         try:
             import yt_dlp
             from yt_dlp.extractor.twitter import TwitterIE
@@ -890,8 +914,8 @@ class IngestionService:
             ydl_opts = {
                 "quiet": True,
                 "no_warnings": True,
-                **self._yt_dlp_cookies_opts(),
-                **self._x_cookies_opts(),
+                **(self._yt_dlp_cookies_opts() if use_cookies else {}),
+                **(self._x_cookies_opts() if use_cookies else {}),
                 **self._yt_dlp_proxy_opts(),
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -921,7 +945,7 @@ class IngestionService:
                 "thumbnail_url": f"https://unavatar.io/twitter/{handle}" if handle else None,
             }
         except Exception as e:
-            logger.warning("tweet_graphql_failed", url=url, error=str(e))
+            logger.warning("tweet_graphql_failed", url=url, use_cookies=use_cookies, error=str(e))
             return {}
 
     def _extract_tweet_video(self, url: str):
