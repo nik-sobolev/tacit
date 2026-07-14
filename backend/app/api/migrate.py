@@ -79,6 +79,9 @@ async def migrate(request: Request, body: MigrateRequest):
 
             def _process(node_id):
                 try:
+                    if node.type == "tweet":
+                        if not ingestion_service.extract_tweet_deferred(node_id, node.url):
+                            return
                     graph_service.process_node(node_id)
                 except Exception:
                     pass

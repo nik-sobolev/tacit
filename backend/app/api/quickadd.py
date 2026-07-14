@@ -108,6 +108,9 @@ async def quick_add(request: Request, token: str, url: str = None):
 
     def _process(node_id):
         try:
+            if node.type == "tweet":
+                if not ingestion_service.extract_tweet_deferred(node_id, node.url):
+                    return
             graph_service.process_node(node_id)
         except Exception as e:
             logger.error("quickadd_process_failed", node_id=node_id, error=str(e))

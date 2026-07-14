@@ -58,6 +58,40 @@ class IngestionService:
         content_type = detect_url_type(url)
         logger.info("ingesting_url", url=url, type=content_type)
 
+        if content_type == "tweet":
+            # Tweet/Article extraction chains multiple slow network round trips
+            # (anonymous GraphQL, cookie-authenticated GraphQL, oEmbed, a
+            # Playwright browser render for Articles) against a host that's
+            # actively hostile to scraping. POST /api/ingest awaits this whole
+            # call before responding — running it here made the "Add to Canvas"
+            # button hang for as long as that chain took, occasionally long
+            # enough to look stuck. Return a fast placeholder instead; the real
+            # extraction runs in extract_tweet_deferred(), called from
+            # ingest.py's background processing step alongside process_node().
+            node_id = str(uuid.uuid4())
+            node = NodeDB(
+                id=node_id,
+                user_id=user_id,
+                type=content_type,
+                title=url[:200],
+                content="",
+                url=url,
+                thumbnail_url=None,
+                canvas_x=canvas_x,
+                canvas_y=canvas_y,
+                status="processing",
+                tags=[],
+                node_meta={},
+                created_at=datetime.utcnow(),
+            )
+            with self.db.session_scope() as session:
+                session.add(node)
+                session.flush()
+                session.refresh(node)
+                session.expunge(node)
+                logger.info("node_created_deferred", node_id=node_id, type=content_type)
+            return node
+
         try:
             if content_type == "youtube":
                 data = self._extract_youtube(url)
@@ -106,6 +140,39 @@ class IngestionService:
             logger.info("node_created", node_id=node_id, type=content_type)
 
         return node
+
+    def extract_tweet_deferred(self, node_id: str, url: str) -> bool:
+        """Run the actual tweet/Article extraction for a node created via the
+        fast-placeholder path in ingest_url(), updating it in place.
+
+        Returns True if extraction produced content (node left in "processing"
+        so process_node() can run next), False if it failed (node marked
+        "error" here, so the caller should skip process_node()).
+        """
+        try:
+            data = self._extract_tweet(url)
+            extraction_failed = data.get("metadata", {}).get("extraction_failed", False)
+        except Exception as e:
+            logger.error("ingestion_extraction_error", url=url, error=str(e))
+            data = {"title": url, "content": "", "thumbnail_url": None, "metadata": {"error": str(e), "extraction_failed": True}}
+            extraction_failed = True
+
+        with self.db.session_scope() as session:
+            node = session.query(NodeDB).filter_by(id=node_id).first()
+            if not node:
+                logger.error("extract_tweet_deferred_node_missing", node_id=node_id)
+                return False
+            node.title = data.get("title") or url[:200]
+            node.content = data.get("content", "")
+            node.thumbnail_url = data.get("thumbnail_url")
+            node.node_meta = data.get("metadata", {})
+            if extraction_failed:
+                node.status = "error"
+                node.error_message = data.get("metadata", {}).get("error")
+            session.flush()
+
+        logger.info("tweet_extraction_deferred_done", node_id=node_id, failed=extraction_failed)
+        return not extraction_failed
 
     # ==================== YOUTUBE ====================
 

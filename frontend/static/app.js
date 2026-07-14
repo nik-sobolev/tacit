@@ -671,44 +671,45 @@ async function submitUrl(overrideX, overrideY) {
     input.disabled = true;
     document.getElementById('ingestBtn').disabled = true;
 
-    // Layer 1: instant duplicate check against in-memory graph
-    const normalizedInput = normalizeUrl(url);
-    const existingNode = graphData.nodes.find(n => n.url && normalizeUrl(n.url) === normalizedInput);
-    if (existingNode) {
-        const isFailed = existingNode.status === 'error' || (existingNode.title && existingNode.title.includes('Content Unavailable'));
-        if (!isFailed) {
-            showToast('Already on your canvas', 'error');
-            scrollToNode(existingNode);
-            const existingCard = nodeElements[existingNode.id];
-            if (existingCard) {
-                existingCard.classList.add('card-highlight-pulse');
-                setTimeout(() => existingCard.classList.remove('card-highlight-pulse'), 1500);
-            }
-            input.value = '';
-            input.disabled = false;
-            document.getElementById('ingestBtn').disabled = false;
-            return;
-        }
-        // Failed node — silently remove from canvas so it gets re-processed
-        try {
-            await apiFetch(`${API_BASE}/nodes/${existingNode.id}`, { method: 'DELETE' });
-            const card = nodeElements[existingNode.id];
-            if (card) card.remove();
-            delete nodeElements[existingNode.id];
-            graphData.nodes = graphData.nodes.filter(n => n.id !== existingNode.id);
-            graphData.edges = graphData.edges.filter(e => e.source_id !== existingNode.id && e.target_id !== existingNode.id);
-            drawEdges(graphData.edges);
-        } catch (_) {}
-    }
-
-    // Place new card near center of current viewport (desktop) or stacked (mobile),
-    // unless an explicit position override was passed (e.g. paste-on-canvas).
-    const viewport = document.getElementById('canvasViewport');
-    const vw = viewport.clientWidth, vh = viewport.clientHeight;
-    const cx = (overrideX != null) ? overrideX : (isMobile() ? 100 + graphData.nodes.length * 10 : (-canvasX + vw / 2) / canvasScale + (Math.random() * 200 - 100));
-    const cy = (overrideY != null) ? overrideY : (isMobile() ? 100 + graphData.nodes.length * 10 : (-canvasY + vh / 2) / canvasScale + (Math.random() * 200 - 100));
-
+    // Everything below is wrapped in one try/finally so any exception —
+    // including one thrown by the duplicate-check logic below, not just the
+    // network call — always re-enables the input/button. A crash here used
+    // to leave "Add to Canvas" permanently greyed out until a page refresh.
     try {
+        // Layer 1: instant duplicate check against in-memory graph
+        const normalizedInput = normalizeUrl(url);
+        const existingNode = graphData.nodes.find(n => n.url && normalizeUrl(n.url) === normalizedInput);
+        if (existingNode) {
+            const isFailed = existingNode.status === 'error' || (existingNode.title && existingNode.title.includes('Content Unavailable'));
+            if (!isFailed) {
+                showToast('Already on your canvas', 'error');
+                scrollToNode(existingNode);
+                const existingCard = nodeElements[existingNode.id];
+                if (existingCard) {
+                    existingCard.classList.add('card-highlight-pulse');
+                    setTimeout(() => existingCard.classList.remove('card-highlight-pulse'), 1500);
+                }
+                return;
+            }
+            // Failed node — silently remove from canvas so it gets re-processed
+            try {
+                await apiFetch(`${API_BASE}/nodes/${existingNode.id}`, { method: 'DELETE' });
+                const card = nodeElements[existingNode.id];
+                if (card) card.remove();
+                delete nodeElements[existingNode.id];
+                graphData.nodes = graphData.nodes.filter(n => n.id !== existingNode.id);
+                graphData.edges = graphData.edges.filter(e => e.source_id !== existingNode.id && e.target_id !== existingNode.id);
+                drawEdges(graphData.edges);
+            } catch (_) {}
+        }
+
+        // Place new card near center of current viewport (desktop) or stacked (mobile),
+        // unless an explicit position override was passed (e.g. paste-on-canvas).
+        const viewport = document.getElementById('canvasViewport');
+        const vw = viewport.clientWidth, vh = viewport.clientHeight;
+        const cx = (overrideX != null) ? overrideX : (isMobile() ? 100 + graphData.nodes.length * 10 : (-canvasX + vw / 2) / canvasScale + (Math.random() * 200 - 100));
+        const cy = (overrideY != null) ? overrideY : (isMobile() ? 100 + graphData.nodes.length * 10 : (-canvasY + vh / 2) / canvasScale + (Math.random() * 200 - 100));
+
         const res = await apiFetch(`${API_BASE}/ingest`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
