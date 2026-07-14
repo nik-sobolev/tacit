@@ -156,6 +156,39 @@ async def robots_txt():
     return PlainTextResponse("\n".join(lines))
 
 
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_policy():
+    """Privacy policy for the 'Save to Tacit' Chrome extension (browser-extension/).
+    Required by the Chrome Web Store for any listing requesting host permissions
+    or handling user data — this is the URL that goes in that listing's privacy
+    policy field."""
+    return HTMLResponse("""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Privacy Policy — Save to Tacit</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 640px; margin: 60px auto; padding: 0 20px; line-height: 1.6; color: #222; }
+  h1 { font-size: 22px; } h2 { font-size: 16px; margin-top: 32px; }
+</style></head>
+<body>
+<h1>Privacy Policy — Save to Tacit (browser extension)</h1>
+<p>This page covers the "Save to Tacit" Chrome extension specifically. For the main Tacit app's privacy practices, see your account settings.</p>
+
+<h2>What it captures</h2>
+<p>Only when you click "Save this page" in the extension popup, it reads the current tab's page content (the rendered HTML) and URL. It does not run in the background, does not read any other tabs, and does not capture anything without you clicking the button.</p>
+
+<h2>What it's used for</h2>
+<p>The captured page content and URL are sent to Tacit's API and used solely to create a saved item in your own Tacit account, tied to your personal access token. This is what lets the extension save pages that require you to be logged in to view — like X Articles — since it uses the page exactly as your browser already renders it, rather than Tacit fetching the page itself.</p>
+
+<h2>What it's not used for</h2>
+<p>Captured content is never sold, shared with third parties, or used for advertising. It isn't used to train any model beyond the same AI processing (summarization, tagging) already applied to anything else you save in Tacit.</p>
+
+<h2>Where it's sent</h2>
+<p>Directly to Tacit's own API (trytacit.app) over HTTPS. No other destination.</p>
+
+<h2>Questions</h2>
+<p>Contact <a href="mailto:support@trytacit.app">support@trytacit.app</a>.</p>
+</body></html>""")
+
+
 @app.get("/llms.txt")
 async def llms_txt():
     """llms.txt — emerging convention (llmstxt.org) for a plain-language product
