@@ -3,6 +3,7 @@
 
 import html
 import json
+import httpx
 import structlog
 from fastapi import FastAPI, Request, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -926,6 +927,62 @@ async def debug_youtube(video_id: str):
 
     results["groq_key"] = {"present": bool(os.getenv("GROQ_API_KEY"))}
     results["ffmpeg"] = {"present": os.system("ffmpeg -version > /dev/null 2>&1") == 0}
+    return results
+
+
+@app.get("/api/debug/webpage")
+async def debug_webpage(url: str):
+    """Diagnostic: test each webpage extraction step exactly as the real pipeline
+    does, isolating whether Playwright's Chromium binary is actually launchable
+    in this environment (as opposed to a per-site extraction issue). Mirrors
+    /api/debug/tweet and /api/debug/youtube/{video_id}. Runs in a thread
+    executor — Playwright's sync API can't run on an already-running asyncio
+    loop, same reason those two debug endpoints do the same."""
+    import asyncio, traceback
+    results = {}
+
+    def _run_debug():
+        # Test 1: chromium launch in isolation — the thing most likely to be
+        # broken in prod if the Dockerfile's `playwright install chromium
+        # --with-deps` step didn't run (e.g. Render building via a native
+        # buildpack instead of the repo's Dockerfile).
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                version = browser.version
+                browser.close()
+            results["chromium_launch"] = {"ok": True, "version": version}
+        except Exception as e:
+            results["chromium_launch"] = {"ok": False, "error": str(e)[:500], "trace": traceback.format_exc()[-1000:]}
+
+        # Test 2: trafilatura + bs4 (no browser needed)
+        try:
+            import trafilatura
+            response = httpx.get(url, timeout=15, follow_redirects=True, headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            })
+            response.raise_for_status()
+            html = response.text
+            content = trafilatura.extract(html, include_comments=False, include_tables=True)
+            results["trafilatura"] = {"ok": bool(content), "chars": len(content or "")}
+        except Exception as e:
+            results["trafilatura"] = {"ok": False, "error": str(e)[:400]}
+
+        # Test 3: full composed extraction (what ingest_url() actually calls)
+        try:
+            full = ingestion_service._extract_webpage(url)
+            results["full_extraction"] = {
+                "ok": True,
+                "title": full.get("title"),
+                "content_chars": len(full.get("content") or ""),
+                "extracted_via": full.get("metadata", {}).get("extracted_via", "trafilatura/bs4"),
+            }
+        except Exception as e:
+            results["full_extraction"] = {"ok": False, "error": str(e)[:400], "trace": traceback.format_exc()[-1000:]}
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _run_debug)
     return results
 
 
