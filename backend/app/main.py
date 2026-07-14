@@ -682,8 +682,8 @@ async def transcript_md(node_id: str):
     return PlainTextResponse(build_transcript_md(data), media_type="text/markdown")
 
 
-@app.get("/yt/{video_id}")
-@app.get("/yt/{video_id}/{slug}")
+@app.api_route("/yt/{video_id}", methods=["GET", "HEAD"])
+@app.api_route("/yt/{video_id}/{slug}", methods=["GET", "HEAD"])
 async def public_youtube_transcript(video_id: str, slug: str = "", format: str = "html"):
     """Public, usetranscribe.io-style transcript page keyed by YouTube video_id
     (publicly known — the video itself is already public, so this is intentionally
@@ -772,8 +772,8 @@ async def public_youtube_transcript(video_id: str, slug: str = "", format: str =
     return HTMLResponse(build_transcript_html(data, canonical_url, md_url))
 
 
-@app.get("/s/{node_id}", response_class=HTMLResponse)
-@app.get("/s/{node_id}/{slug}", response_class=HTMLResponse)
+@app.api_route("/s/{node_id}", methods=["GET", "HEAD"], response_class=HTMLResponse)
+@app.api_route("/s/{node_id}/{slug}", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def public_node_transcript(node_id: str, slug: str = ""):
     """Public transcript page for non-YouTube nodes (TikTok/Instagram/web pages),
     keyed by the unguessable node UUID — same privacy model as /t/{node_id}."""
