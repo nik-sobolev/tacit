@@ -126,6 +126,17 @@ LLM_CRAWLER_AGENTS = [
 ]
 
 
+SOCIAL_PREVIEW_AGENTS = [
+    "LinkedInBot",        # LinkedIn link-preview card fetch
+    "facebookexternalhit",  # Facebook/Messenger
+    "Twitterbot",
+    "Slackbot",
+    "TelegramBot",
+    "WhatsApp",
+    "Discordbot",
+]
+
+
 @app.get("/robots.txt", response_class=PlainTextResponse)
 async def robots_txt():
     """Allow crawling of the landing page and public /yt transcript pages (our
@@ -133,7 +144,14 @@ async def robots_txt():
     unguessable-by-design private share links (see public_node_transcript /
     transcript_md docstrings) and must stay out of robots/sitemap so we don't
     publish an index of them. Named LLM crawler blocks (LLM_CRAWLER_AGENTS)
-    get the identical rule set — see that constant's docstring for why."""
+    get the identical rule set — see that constant's docstring for why.
+
+    SOCIAL_PREVIEW_AGENTS get a narrower carve-out: Allow: /s/ but not /t/
+    (markdown, no OG tags to unfurl) so that sharing a /s/{node_id} link to
+    LinkedIn/X/Facebook/Slack/etc. still renders a link-preview card. These
+    bots fetch a single named URL a user just shared, not an index of
+    unguessable ones, so this doesn't reintroduce the "don't publish an
+    index" concern the blanket Disallow: /s/ above exists for."""
     rule_block = [
         "Allow: /yt/",
         "Disallow: /api/",
@@ -149,6 +167,20 @@ async def robots_txt():
     lines = ["User-agent: *", *rule_block]
     for agent in LLM_CRAWLER_AGENTS:
         lines += [f"User-agent: {agent}", *rule_block]
+    for agent in SOCIAL_PREVIEW_AGENTS:
+        lines += [
+            f"User-agent: {agent}",
+            "Allow: /yt/",
+            "Allow: /s/",
+            "Disallow: /api/",
+            "Disallow: /app",
+            "Disallow: /sign-in",
+            "Disallow: /sign-up",
+            "Disallow: /share",
+            "Disallow: /t/",
+            "Disallow: /uploads/",
+            "",
+        ]
     lines += [
         "Sitemap: https://www.trytacit.app/sitemap.xml",
         "# AI agents (API access): see https://www.trytacit.app/AGENTS.md",
