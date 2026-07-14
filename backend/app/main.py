@@ -2,6 +2,7 @@
 # Force redeploy
 
 import html
+import json
 import structlog
 from fastapi import FastAPI, Request, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -545,6 +546,21 @@ h2{{font-family:'Newsreader',serif;font-size:18px;margin:32px 0 12px;}}
 <div class="tc-cta">Transcribed with <a href="https://www.trytacit.app">Tacit</a></div>
 <div class="tc-agents"><a href="{md_url_esc}">View as markdown</a> · <a href="/AGENTS.md">For AI agents</a></div>
 </div>
+<script>
+// LinkedIn's share-offsite endpoint only accepts a `url` param — it dropped
+// support for prefilling post text years ago, so its composer always opens
+// blank. Copy the title to the clipboard as the best available workaround.
+document.querySelectorAll('.tc-share-btn').forEach(function(a) {{
+    if (a.href.indexOf('linkedin.com') === -1) return;
+    a.addEventListener('click', function() {{
+        navigator.clipboard?.writeText({json.dumps(raw_title)}).then(function() {{
+            var original = a.textContent;
+            a.textContent = 'Copied caption!';
+            setTimeout(function() {{ a.textContent = original; }}, 2500);
+        }}).catch(function() {{}});
+    }});
+}});
+</script>
 </body>
 </html>"""
 

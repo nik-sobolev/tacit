@@ -1348,6 +1348,14 @@ function openSharePopover(nodeId, btn) {
         navigator.share({ title, url }).catch(() => {});
         popover.remove();
     });
+    // Unlike X/Reddit/WhatsApp, LinkedIn's share-offsite endpoint only accepts
+    // a `url` param — it dropped support for prefilling the post text years
+    // ago, so "Share your thoughts" always opens blank. Copy the caption to
+    // the clipboard as the best available workaround so the user can paste it.
+    popover.querySelector('a[title="Share on LinkedIn"]')?.addEventListener('click', () => {
+        _copyToClipboard(title).catch(() => {});
+        showToast('LinkedIn doesn’t support prefilled post text — caption copied, paste it in', 'info');
+    });
     popover.querySelector('[data-action="copy"]').addEventListener('click', () => {
         _copyToClipboard(url).then(() => {
             showToast('Link copied to clipboard', 'info');
