@@ -215,6 +215,7 @@ function sessionStorageKey() {
 let canvasX = 0, canvasY = 0, canvasScale = 1;
 let lastMouseClientX = null, lastMouseClientY = null;
 let isPanning = false, panStartX = 0, panStartY = 0;
+let panMouseDownX = 0, panMouseDownY = 0;
 let isDraggingCard = false;
 let dragCard = null, dragOffsetX = 0, dragOffsetY = 0;
 const nodeElements = {};  // nodeId → DOM card element
@@ -313,6 +314,8 @@ function initCanvas() {
             isPanning = true;
             panStartX = e.clientX - canvasX;
             panStartY = e.clientY - canvasY;
+            panMouseDownX = e.clientX;
+            panMouseDownY = e.clientY;
             viewport.style.cursor = 'grabbing';
             e.preventDefault();
         }
@@ -340,6 +343,13 @@ function initCanvas() {
         if (isPanning) {
             isPanning = false;
             viewport.style.cursor = 'grab';
+            // A real click (not a pan-drag) on empty canvas clears any active
+            // category/chat-focus highlight — the only other way to do this
+            // is buried in the Tags sidebar's "Show All" button.
+            const moved = Math.hypot(e.clientX - panMouseDownX, e.clientY - panMouseDownY);
+            if (moved < 4) {
+                clearCategoryFilter();
+            }
         }
         if (isDraggingCard && dragCard) {
             const nodeId = dragCard.dataset.nodeId;
