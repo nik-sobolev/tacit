@@ -938,11 +938,13 @@ async def debug_webpage(url: str):
     /api/debug/tweet and /api/debug/youtube/{video_id}. Runs in a thread
     executor — Playwright's sync API can't run on an already-running asyncio
     loop, same reason those two debug endpoints do the same. Also reports
-    agent_config: which summarization provider/API keys are configured, since
-    "Processing failed" on a node can originate from graph_service's LLM
-    summarization step (which runs after extraction) rather than extraction
-    itself — this reports config presence only, no LLM call is made."""
+    agent_config (provider/API key presence, no call) and runs the actual
+    LLM summarization step against the real extracted content — a real,
+    billed call, but with user_id=None so no usage/entitlements are recorded
+    and no database writes happen — since "Processing failed" on a node can
+    originate from that step rather than extraction itself."""
     import asyncio, os, traceback
+    from types import SimpleNamespace
     results = {
         "agent_config": {
             "summarization_provider": graph_service.summarization_provider,
@@ -981,6 +983,7 @@ async def debug_webpage(url: str):
             results["trafilatura"] = {"ok": False, "error": str(e)[:400]}
 
         # Test 3: full composed extraction (what ingest_url() actually calls)
+        full = None
         try:
             full = ingestion_service._extract_webpage(url)
             results["full_extraction"] = {
@@ -991,6 +994,28 @@ async def debug_webpage(url: str):
             }
         except Exception as e:
             results["full_extraction"] = {"ok": False, "error": str(e)[:400], "trace": traceback.format_exc()[-1000:]}
+
+        # Test 4: the LLM summarization step process_node() runs after extraction —
+        # a real, billed call (Gemini or Claude, whichever's configured), but a
+        # duck-typed node with user_id=None so no usage/entitlements are recorded
+        # and nothing touches the database.
+        if full is not None:
+            try:
+                fake_node = SimpleNamespace(
+                    content=full.get("content") or "",
+                    type="webpage",
+                    url=url,
+                    title=full.get("title") or url,
+                    user_id=None,
+                )
+                agent_result = graph_service._run_agent(fake_node, existing_summary="", existing_categories=[])
+                results["agent_summarization"] = {
+                    "ok": True,
+                    "title": agent_result.get("title"),
+                    "summary": agent_result.get("summary"),
+                }
+            except Exception as e:
+                results["agent_summarization"] = {"ok": False, "error": str(e)[:500], "trace": traceback.format_exc()[-1000:]}
 
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(None, _run_debug)
