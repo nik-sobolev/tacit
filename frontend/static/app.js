@@ -157,6 +157,23 @@ function addUserMenuToHeader(clerk) {
         });
         navbar.appendChild(mobileItem);
 
+        // Browser extension setup button (X Articles + other login-gated saves)
+        const extItem = document.createElement('button');
+        extItem.className = 'tacit-mobile-item cl-navbarButton';
+        extItem.setAttribute('type', 'button');
+        extItem.style.cssText = btnStyle;
+        extItem.innerHTML = '<span style="font-size:16px">🧩</span> Browser Extension';
+        extItem.addEventListener('click', async () => {
+            try {
+                const res = await apiFetch(`${API_BASE}/quickadd/token`);
+                const data = await res.json();
+                showExtensionSetupModal(data.token);
+            } catch (e) {
+                showToast('Could not load token. Try again.', 'error');
+            }
+        });
+        navbar.appendChild(extItem);
+
         // Sign out button
         const item = document.createElement('button');
         item.className = 'tacit-signout-item cl-navbarButton';
@@ -869,6 +886,47 @@ function showIOSShortcutModal(token) {
         try {
             await navigator.clipboard.writeText(addUrl);
             showToast('URL copied to clipboard!', 'success');
+        } catch (e) {
+            showToast('Could not copy to clipboard', 'error');
+        }
+    });
+}
+
+function showExtensionSetupModal(token) {
+    const modal = document.createElement('div');
+    modal.className = 'ios-shortcut-modal';
+    modal.innerHTML = `
+        <div class="ios-shortcut-overlay"></div>
+        <div class="ios-shortcut-panel">
+            <div class="ios-shortcut-header">
+                <h3>Browser Extension</h3>
+                <button class="ios-shortcut-close">✕</button>
+            </div>
+            <div class="ios-shortcut-body">
+                <p style="font-size:13px;margin-bottom:16px">Use this for pages that need you to be logged in to read — X Articles are the main case. The extension saves the page exactly as your browser already sees it, so it works even when Tacit's own fetching can't get past a login wall.</p>
+                <ol style="font-size:13px;margin-bottom:16px;line-height:1.6">
+                    <li>Load the <code>browser-extension</code> folder as an unpacked extension in Chrome</li>
+                    <li>Open the extension popup, click Settings</li>
+                    <li>Paste your token below and save it</li>
+                    <li>On any page you want saved, click the extension icon → "Save this page"</li>
+                </ol>
+                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">Your API token (keep secret):</p>
+                <div style="display:flex;gap:8px">
+                    <input type="text" id="extTokenInput" readonly value="${token}" style="flex:1;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:12px;font-family:monospace" />
+                    <button id="copyExtTokenBtn" style="padding:8px 12px;background:var(--primary);color:white;border:none;border-radius:4px;cursor:pointer;white-space:nowrap">Copy</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.querySelector('.ios-shortcut-close').addEventListener('click', () => modal.remove());
+    modal.querySelector('.ios-shortcut-overlay').addEventListener('click', () => modal.remove());
+
+    modal.querySelector('#copyExtTokenBtn').addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(token);
+            showToast('Token copied to clipboard!', 'success');
         } catch (e) {
             showToast('Could not copy to clipboard', 'error');
         }

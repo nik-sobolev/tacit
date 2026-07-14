@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Save to Tacit",
+  "version": "1.0.0",
+  "description": "Save the current page (including X Articles and other login-gated content) to your Tacit canvas, using your browser's own logged-in session.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["https://www.trytacit.app/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Save to Tacit"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

@@ -1414,31 +1414,45 @@ class IngestionService:
             finally:
                 _PLAYWRIGHT_LAUNCH_SEMAPHORE.release()
 
-            import trafilatura
-            content = trafilatura.extract(html, include_comments=False, include_tables=True)
-
-            if not content:
-                content = self._bs4_extract(html)
-
-            if not title:
-                title = self._extract_html_title(html)
-
-            favicon_url = self._get_favicon_url(url)
-
-            logger.info("browser_extraction_success", url=url, content_len=len(content or ""))
-            return {
-                "title": title or domain,
-                "content": content or "",
-                "thumbnail_url": favicon_url,
-                "metadata": {
-                    "domain": domain,
-                    "word_count": len((content or "").split()),
-                    "extracted_via": "playwright",
-                },
-            }
+            result = self.extract_from_html(url, html, title)
+            result["metadata"]["extracted_via"] = "playwright"
+            logger.info("browser_extraction_success", url=url, content_len=len(result.get("content") or ""))
+            return result
         except Exception as e:
             logger.error("browser_extraction_error", url=url, error=str(e))
             raise
+
+    def extract_from_html(self, url: str, html: str, title: str = None) -> Dict[str, Any]:
+        """Run the same content-extraction pipeline _extract_webpage_browser() uses
+        (trafilatura, with a bs4 fallback), but for HTML that's already been
+        rendered elsewhere — e.g. a browser extension sending the page exactly as
+        the user's own authenticated browser sees it. Sites that gate content
+        behind a real login wall (X Articles) can't be told apart from ordinary
+        browsing this way, since there's no server-side fetch at all."""
+        parsed = urlparse(url)
+        domain = parsed.netloc.replace("www.", "")
+
+        import trafilatura
+        content = trafilatura.extract(html, include_comments=False, include_tables=True)
+
+        if not content:
+            content = self._bs4_extract(html)
+
+        if not title:
+            title = self._extract_html_title(html)
+
+        favicon_url = self._get_favicon_url(url)
+
+        return {
+            "title": title or domain,
+            "content": content or "",
+            "thumbnail_url": favicon_url,
+            "metadata": {
+                "domain": domain,
+                "word_count": len((content or "").split()),
+                "extracted_via": "extension_html",
+            },
+        }
 
     def _extract_html_title(self, html: str) -> str:
         """Extract <title> tag from HTML."""

@@ -3,16 +3,30 @@
 import uuid
 import asyncio
 import structlog
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request, Depends
+from pydantic import BaseModel
 
 from ..core.auth import get_current_user
 from ..db.database import get_database, UserQuickTokenDB, NodeDB
+from ..services.ingestion_service import detect_url_type
 
 logger = structlog.get_logger()
 router = APIRouter()
 
 # Rate limiting for token validation attempts (prevent brute force)
 TOKEN_ATTEMPTS = {}
+
+# An Article page's rendered HTML has no legitimate reason to exceed this —
+# caps the browser-extension endpoint against a runaway/misbehaving client.
+MAX_HTML_BYTES = 5 * 1024 * 1024
+
+
+class QuickAddHtmlRequest(BaseModel):
+    token: str
+    url: str
+    html: str
+    title: str = None
 
 
 @router.get("/quickadd/token")
@@ -119,3 +133,82 @@ async def quick_add(request: Request, token: str, url: str = None):
 
     logger.info("quickadd_success", user_id=user_id, url=url)
     return {"status": "queued", "node_id": node.id}
+
+
+@router.post("/quickadd/html")
+async def quick_add_html(request: Request, body: QuickAddHtmlRequest):
+    """Add a URL using HTML already rendered by the caller's own browser (the
+    browser extension) instead of fetching it server-side. This is the path
+    for pages that gate content behind a real login wall — X Articles are the
+    motivating case: X has no unauthenticated access to them at all, and
+    server-side session cookies keep getting invalidated by X's bot detection.
+    A real, already-logged-in browser sidesteps that entirely since there's no
+    server-side fetch to detect. Token-based auth, same as POST /quickadd."""
+    import time
+
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    if client_ip in TOKEN_ATTEMPTS:
+        TOKEN_ATTEMPTS[client_ip] = [t for t in TOKEN_ATTEMPTS[client_ip] if now - t < 60]
+    if client_ip in TOKEN_ATTEMPTS and len(TOKEN_ATTEMPTS[client_ip]) >= 5:
+        logger.warning("quickadd_html_rate_limited", client_ip=client_ip)
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
+
+    if len(body.html.encode("utf-8")) > MAX_HTML_BYTES:
+        raise HTTPException(status_code=413, detail="HTML payload too large")
+
+    db = get_database()
+
+    with db.session_scope() as session:
+        row = session.query(UserQuickTokenDB).filter_by(token=body.token).first()
+        if not row:
+            if client_ip not in TOKEN_ATTEMPTS:
+                TOKEN_ATTEMPTS[client_ip] = []
+            TOKEN_ATTEMPTS[client_ip].append(now)
+            raise HTTPException(status_code=403, detail="Invalid token")
+        user_id = row.user_id
+
+    if not body.url or not body.url.startswith("http"):
+        raise HTTPException(status_code=400, detail="url required")
+
+    # Per-user duplicate/retry check — unlike POST /quickadd's plain duplicate
+    # check, a failed node gets replaced so re-saving from the extension after
+    # a prior failure actually retries instead of silently no-oping.
+    with db.session_scope() as session:
+        existing = session.query(NodeDB).filter_by(url=body.url, user_id=user_id).first()
+        if existing:
+            if existing.status != "error":
+                return {"status": "duplicate", "node_id": existing.id}
+            session.delete(existing)
+
+    ingestion_service = request.app.state.ingestion_service
+    graph_service = request.app.state.graph_service
+
+    content_type = detect_url_type(body.url)
+    loop = asyncio.get_event_loop()
+    data = await loop.run_in_executor(
+        None, lambda: ingestion_service.extract_from_html(body.url, body.html, body.title)
+    )
+
+    node_id = str(uuid.uuid4())
+    with db.session_scope() as session:
+        session.add(NodeDB(
+            id=node_id,
+            user_id=user_id,
+            type=content_type,
+            title=data.get("title") or body.url[:200],
+            content=data.get("content", ""),
+            url=body.url,
+            thumbnail_url=data.get("thumbnail_url"),
+            canvas_x=100.0,
+            canvas_y=100.0,
+            status="processing",
+            tags=[],
+            node_meta=data.get("metadata", {}),
+            created_at=datetime.utcnow(),
+        ))
+
+    loop.run_in_executor(None, graph_service.process_node, node_id)
+
+    logger.info("quickadd_html_success", user_id=user_id, url=body.url, type=content_type)
+    return {"status": "queued", "node_id": node_id}
