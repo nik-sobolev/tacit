@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from ..core.auth import get_current_user
 from ..db.database import get_database, UserQuickTokenDB, NodeDB
-from ..services.ingestion_service import detect_url_type
+from ..services.ingestion_service import detect_url_type, DEFERRED_EXTRACTION_TYPES
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -122,8 +122,8 @@ async def quick_add(request: Request, token: str, url: str = None):
 
     def _process(node_id):
         try:
-            if node.type == "tweet":
-                if not ingestion_service.extract_tweet_deferred(node_id, node.url):
+            if node.type in DEFERRED_EXTRACTION_TYPES:
+                if not ingestion_service.extract_deferred(node_id, node.url, node.type):
                     return
             graph_service.process_node(node_id)
         except Exception as e:

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from ..db.database import get_database, NodeDB
 from ..core.auth import get_current_user
 from ..core.entitlements import check_and_reserve, record_action
+from ..services.ingestion_service import DEFERRED_EXTRACTION_TYPES
 
 # process_node() runs in a background thread with no persistence or resume —
 # a server restart (e.g. a deploy) mid-processing orphans the node forever at
@@ -91,12 +92,13 @@ async def ingest_url(request: Request, body: IngestRequest, current_user: dict =
 
         def _safe_process(node_id: str):
             try:
-                if node.type == "tweet":
-                    # ingest_url() returned a fast placeholder for tweets/Articles
+                if node.type in DEFERRED_EXTRACTION_TYPES:
+                    # ingest_url() returned a fast placeholder for these types
                     # without extracting content — do that here, off the request
-                    # path, since it's the one content type with unpredictable,
-                    # multi-step network latency (see extract_tweet_deferred()).
-                    ok = ingestion_service.extract_tweet_deferred(node_id, node.url)
+                    # path, since these are the content types with unpredictable,
+                    # potentially slow extraction (see DEFERRED_EXTRACTION_TYPES
+                    # and extract_deferred()).
+                    ok = ingestion_service.extract_deferred(node_id, node.url, node.type)
                     if not ok:
                         return  # already marked status="error" with a message
                 graph_service.process_node(node_id)

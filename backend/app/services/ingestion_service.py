@@ -46,6 +46,15 @@ def detect_url_type(url: str) -> str:
     return "webpage"
 
 
+# Content types whose extraction is deferred to a background step after
+# ingest_url() returns a placeholder node — see ingest_url()'s docstring on
+# "tweet" below for why. webpage/tiktok/instagram all can hit the Playwright
+# browser-render path (BROWSER_REQUIRED_DOMAINS, or webpage's trafilatura-empty
+# fallback) or, for tiktok/instagram, a multi-step yt-dlp+whisper transcription
+# chain — either can run past a synchronous request's timeout budget.
+DEFERRED_EXTRACTION_TYPES = {"tweet", "webpage", "tiktok", "instagram"}
+
+
 class IngestionService:
     """Handles URL ingestion: extraction, transcription, and node creation."""
 
@@ -58,16 +67,24 @@ class IngestionService:
         content_type = detect_url_type(url)
         logger.info("ingesting_url", url=url, type=content_type)
 
-        if content_type == "tweet":
-            # Tweet/Article extraction chains multiple slow network round trips
+        if content_type in DEFERRED_EXTRACTION_TYPES:
+            # These extraction paths can run past a synchronous request's timeout
+            # budget: tweet/Article chains multiple slow network round trips
             # (anonymous GraphQL, cookie-authenticated GraphQL, oEmbed, a
             # Playwright browser render for Articles) against a host that's
-            # actively hostile to scraping. POST /api/ingest awaits this whole
-            # call before responding — running it here made the "Add to Canvas"
-            # button hang for as long as that chain took, occasionally long
-            # enough to look stuck. Return a fast placeholder instead; the real
-            # extraction runs in extract_tweet_deferred(), called from
-            # ingest.py's background processing step alongside process_node().
+            # actively hostile to scraping; webpage can fall back to a Playwright
+            # render when trafilatura finds nothing (common on JS-heavy "simple"
+            # marketing pages); tiktok/instagram run a multi-step yt-dlp+whisper
+            # transcription chain. All of these also contend for the single
+            # process-wide Playwright launch slot (_PLAYWRIGHT_LAUNCH_SEMAPHORE),
+            # so a slow one can queue up others behind it. POST /api/ingest awaits
+            # this whole call before responding — running any of these here made
+            # the "Add to Canvas" button hang for as long as that chain took, long
+            # enough that Render/Cloudflare's edge would sometimes return a 502
+            # while the origin was still working. Return a fast placeholder
+            # instead; the real extraction runs in extract_deferred(), called
+            # from ingest.py's background processing step alongside
+            # process_node().
             node_id = str(uuid.uuid4())
             node = NodeDB(
                 id=node_id,
@@ -141,16 +158,22 @@ class IngestionService:
 
         return node
 
-    def extract_tweet_deferred(self, node_id: str, url: str) -> bool:
-        """Run the actual tweet/Article extraction for a node created via the
-        fast-placeholder path in ingest_url(), updating it in place.
+    def extract_deferred(self, node_id: str, url: str, content_type: str) -> bool:
+        """Run the actual extraction for a node created via the fast-placeholder
+        path in ingest_url() (see DEFERRED_EXTRACTION_TYPES), updating it in
+        place.
 
         Returns True if extraction produced content (node left in "processing"
         so process_node() can run next), False if it failed (node marked
         "error" here, so the caller should skip process_node()).
         """
         try:
-            data = self._extract_tweet(url)
+            if content_type == "tweet":
+                data = self._extract_tweet(url)
+            elif content_type in ("tiktok", "instagram"):
+                data = self._extract_social_video(url)
+            else:
+                data = self._extract_webpage(url)
             extraction_failed = data.get("metadata", {}).get("extraction_failed", False)
         except Exception as e:
             logger.error("ingestion_extraction_error", url=url, error=str(e))
@@ -160,7 +183,7 @@ class IngestionService:
         with self.db.session_scope() as session:
             node = session.query(NodeDB).filter_by(id=node_id).first()
             if not node:
-                logger.error("extract_tweet_deferred_node_missing", node_id=node_id)
+                logger.error("extract_deferred_node_missing", node_id=node_id)
                 return False
             node.title = data.get("title") or url[:200]
             node.content = data.get("content", "")
@@ -171,7 +194,7 @@ class IngestionService:
                 node.error_message = data.get("metadata", {}).get("error")
             session.flush()
 
-        logger.info("tweet_extraction_deferred_done", node_id=node_id, failed=extraction_failed)
+        logger.info("extraction_deferred_done", node_id=node_id, type=content_type, failed=extraction_failed)
         return not extraction_failed
 
     # ==================== YOUTUBE ====================

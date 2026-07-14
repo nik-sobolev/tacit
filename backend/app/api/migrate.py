@@ -40,6 +40,7 @@ async def migrate(request: Request, body: MigrateRequest):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     from ..db.database import get_database, NodeDB, ContextDB
+    from ..services.ingestion_service import DEFERRED_EXTRACTION_TYPES
 
     db = get_database()
     ingestion_service = request.app.state.ingestion_service
@@ -79,8 +80,8 @@ async def migrate(request: Request, body: MigrateRequest):
 
             def _process(node_id):
                 try:
-                    if node.type == "tweet":
-                        if not ingestion_service.extract_tweet_deferred(node_id, node.url):
+                    if node.type in DEFERRED_EXTRACTION_TYPES:
+                        if not ingestion_service.extract_deferred(node_id, node.url, node.type):
                             return
                     graph_service.process_node(node_id)
                 except Exception:
