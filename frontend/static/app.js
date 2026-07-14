@@ -2329,6 +2329,9 @@ async function sendMessage() {
                 if (action.type === 'chaos_canvas') {
                     triggerCanvasChaos(action.positions || []);
                 }
+                if (action.type === 'focus_nodes') {
+                    focusCanvasNodes(action.node_ids || []);
+                }
                 if (action.type === 'node_created') {
                     if (nodeElements[action.node_id]) continue;
                     const node = {
@@ -2643,6 +2646,30 @@ function clearCategoryFilter() {
     }
     document.querySelectorAll('.category-item').forEach(el => el.classList.remove('active'));
     drawEdges(graphData.edges);
+}
+
+// Locate/open node(s) from chat (e.g. "find my notes on pricing"). Highlights
+// every match the same way clicking a category does, and opens the first one.
+function focusCanvasNodes(nodeIds) {
+    if (!nodeIds || nodeIds.length === 0) return;
+    clearCategoryFilter();
+    const idSet = new Set(nodeIds);
+    for (const [id, card] of Object.entries(nodeElements)) {
+        if (idSet.has(id)) {
+            card.classList.remove('dimmed');
+            card.classList.add('highlighted');
+        } else {
+            card.classList.add('dimmed');
+            card.classList.remove('highlighted');
+        }
+    }
+    drawEdges(graphData.edges);
+
+    const firstNode = graphData.nodes.find(n => n.id === nodeIds[0]);
+    if (firstNode) {
+        scrollToNode(firstNode);
+        openDetail(nodeIds[0]);
+    }
 }
 
 function filterBySearch(query) {

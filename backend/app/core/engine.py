@@ -836,13 +836,17 @@ The user is looking for specific information from their knowledge base.
     _LINKING_KEYWORDS = {
         "link", "connect", "relate", "associate", "tie", "attach",
         "unlink", "disconnect", "detach", "remove", "delete",
+        "find", "locate", "open", "highlight", "focus",
     }
+
+    _LINKING_PHRASES = ("take me to", "pull up", "where is", "where's")
 
     _URL_RE = re.compile(r'https?://\S+', re.IGNORECASE)
 
     def _has_linking_intent(self, message: str) -> bool:
-        words = set(message.lower().split())
-        return bool(words & self._LINKING_KEYWORDS)
+        lower = message.lower()
+        words = set(lower.split())
+        return bool(words & self._LINKING_KEYWORDS) or any(p in lower for p in self._LINKING_PHRASES)
 
     def _has_url(self, message: str) -> bool:
         return bool(self._URL_RE.search(message))
@@ -963,6 +967,26 @@ The user is looking for specific information from their knowledge base.
                     }
                 },
                 "required": ["node_id"]
+            }
+        },
+        {
+            "name": "focus_canvas_node",
+            "description": (
+                "Open and highlight a specific card (or cards) on the user's canvas. "
+                "Call this when the user asks to 'find', 'show me', 'open', 'take me to', "
+                "'where is', 'locate', or 'highlight' something on their canvas. "
+                "Unlike search_canvas_nodes, this actually opens the card in the UI — "
+                "use it when the user wants to see the card itself, not just a text answer about it."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The topic, title, or content to find on the canvas"
+                    }
+                },
+                "required": ["query"]
             }
         }
     ]
@@ -1198,6 +1222,34 @@ The user is looking for specific information from their knowledge base.
                 return {"success": True, "deleted": title}
             finally:
                 db_session.close()
+
+        if name == "focus_canvas_node":
+            query = inputs.get("query", "")
+            nodes = self.vector_service.search_nodes(query, limit=5)
+            node_ids = {n["id"] for n in nodes}
+            db_session = self.db.get_session()
+            try:
+                owned_ids = filter_owned_ids(db_session, NodeDB, node_ids, self._current_user_id)
+            finally:
+                db_session.close()
+
+            matches = [
+                n for n in nodes
+                if n["id"] in owned_ids and n.get("relevance_score", 0) > self.config.min_relevance_score
+            ]
+            if not matches:
+                return {"error": "No matching card found on the canvas"}
+
+            actions.append({
+                "type": "focus_nodes",
+                "node_ids": [n["id"] for n in matches],
+            })
+            logger.info("canvas_node_focused", query=query, node_ids=[n["id"] for n in matches])
+            return {
+                "success": True,
+                "opened": matches[0]["metadata"].get("title", "Untitled"),
+                "highlighted_count": len(matches),
+            }
 
         if name == "search_web":
             query = inputs.get("query", "")
