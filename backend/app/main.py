@@ -937,9 +937,20 @@ async def debug_webpage(url: str):
     in this environment (as opposed to a per-site extraction issue). Mirrors
     /api/debug/tweet and /api/debug/youtube/{video_id}. Runs in a thread
     executor — Playwright's sync API can't run on an already-running asyncio
-    loop, same reason those two debug endpoints do the same."""
-    import asyncio, traceback
-    results = {}
+    loop, same reason those two debug endpoints do the same. Also reports
+    agent_config: which summarization provider/API keys are configured, since
+    "Processing failed" on a node can originate from graph_service's LLM
+    summarization step (which runs after extraction) rather than extraction
+    itself — this reports config presence only, no LLM call is made."""
+    import asyncio, os, traceback
+    results = {
+        "agent_config": {
+            "summarization_provider": graph_service.summarization_provider,
+            "gemini_key_present": bool(os.getenv("GEMINI_API_KEY", "").strip()),
+            "anthropic_key_present": bool(os.getenv("ANTHROPIC_API_KEY", "").strip()),
+            "client_initialized": graph_service.client is not None,
+        },
+    }
 
     def _run_debug():
         # Test 1: chromium launch in isolation — the thing most likely to be
