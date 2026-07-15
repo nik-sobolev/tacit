@@ -410,7 +410,14 @@ def build_transcript_html(data: dict, canonical_url: str, md_url: str) -> str:
             rows.append(f'<p class="tc-para">{ts} {text}</p>')
         transcript_html = "".join(rows)
     elif data["content"]:
-        transcript_html = f'<p class="tc-para">{html.escape(data["content"])}</p>'
+        # No timestamped segments (documents, plain web text): split on blank
+        # lines into paragraphs so long extracted content reads cleanly instead
+        # of rendering as one giant block.
+        import re as _re
+        blocks = [b.strip() for b in _re.split(r"\n\s*\n", data["content"]) if b.strip()]
+        transcript_html = "".join(
+            f'<p class="tc-para">{html.escape(b)}</p>' for b in blocks
+        ) or f'<p class="tc-para">{html.escape(data["content"])}</p>'
 
     share_targets = [
         ("X", f"https://twitter.com/intent/tweet?text={quote(raw_title)}&url={quote(canonical_url)}"),
@@ -482,7 +489,7 @@ h2{{font-family:'Newsreader',serif;font-size:18px;margin:32px 0 12px;}}
 <div class="tc-share">{share_html}</div>
 {f'<h2>Summary</h2><p class="tc-para">{summary}</p>' if summary else ''}
 {f'<h2>Key Points</h2>{key_points_html}' if key_points_html else ''}
-{f'<h2>Transcript</h2>{transcript_html}' if transcript_html else ''}
+{f'<h2>{"Content" if meta.get("is_document") else "Transcript"}</h2>{transcript_html}' if transcript_html else ''}
 <div class="tc-cta">Transcribed with <a href="https://www.trytacit.app">Tacit</a></div>
 <div class="tc-agents"><a href="{md_url_esc}">View as markdown</a> · <a href="/AGENTS.md">For AI agents</a></div>
 </div>
@@ -531,7 +538,7 @@ def build_transcript_md(data: dict) -> str:
             lines.append(f"{ts} {p['text']}")
             lines.append("")
     elif data["content"]:
-        lines.append("## Transcript")
+        lines.append("## Content" if meta.get("is_document") else "## Transcript")
         lines.append("")
         lines.append(data["content"])
 

@@ -17,6 +17,12 @@ from ..db.database import get_database, NodeDB
 logger = structlog.get_logger()
 
 
+# URL path suffixes that map to an extractable document. Extensionless document
+# URLs (e.g. arxiv.org/pdf/2401.12345) are caught later by content-type sniffing
+# inside _extract_webpage, which re-labels the node type via metadata.
+DOCUMENT_URL_EXTENSIONS = {"pdf": "pdf", "docx": "document", "txt": "document", "md": "document"}
+
+
 def detect_url_type(url: str) -> str:
     """Detect the type of content at a URL."""
     url_lower = url.lower()
@@ -31,6 +37,10 @@ def detect_url_type(url: str) -> str:
         return "instagram"
     if host in ("x.com", "twitter.com", "t.co"):
         return "tweet"
+    # Document URLs identified by path suffix (query string ignored)
+    path_ext = parsed.path.rsplit(".", 1)[-1].lower() if "." in parsed.path else ""
+    if path_ext in DOCUMENT_URL_EXTENSIONS:
+        return DOCUMENT_URL_EXTENSIONS[path_ext]
     return "webpage"
 
 
@@ -53,6 +63,8 @@ class IngestionService:
                 data = self._extract_social_video(url)
             elif content_type == "tweet":
                 data = self._extract_tweet(url)
+            elif content_type in ("pdf", "document"):
+                data = self._extract_document_url(url)
             else:
                 data = self._extract_webpage(url)
         except Exception as e:
@@ -63,6 +75,12 @@ class IngestionService:
                 "thumbnail_url": None,
                 "metadata": {"error": str(e), "extraction_failed": True},
             }
+
+        # A URL that looked like a webpage but served document bytes (e.g. an
+        # extensionless PDF link) is re-labeled here so the card/icon/detail
+        # reflect the real type. See _extract_webpage's PDF branch.
+        if data.get("metadata", {}).get("is_document"):
+            content_type = data["metadata"].get("document_type") or content_type
 
         extraction_failed = data.get("metadata", {}).get("extraction_failed", False)
         node_id = str(uuid.uuid4())
@@ -832,6 +850,58 @@ class IngestionService:
             logger.info("tweet_video_extraction_skip", url=url, error=str(e))
             return "", [], video_meta
 
+    # ==================== DOCUMENTS (URL-hosted) ====================
+
+    def _document_processor(self):
+        """Lazily construct and cache the shared DocumentProcessor (PyPDF2/docx)."""
+        proc = getattr(self, "_doc_processor", None)
+        if proc is None:
+            from .document_service import DocumentProcessor
+            proc = DocumentProcessor()
+            self._doc_processor = proc
+        return proc
+
+    def _extract_document_bytes(self, content: bytes, file_type: str, url: str) -> Dict[str, Any]:
+        """Extract text from in-memory document bytes into the standard node shape.
+
+        URL-first: the source of record is `url`; the bytes are never persisted.
+        Sets metadata.is_document so ingest_url() re-labels the node type.
+        """
+        result = self._document_processor().extract_from_bytes(content, file_type)
+        text = (result.get("text") or "").strip()
+        if not text:
+            raise ValueError(f"No extractable text in {file_type} document")
+
+        node_type = "pdf" if file_type == "pdf" else "document"
+        # Title from the document's own metadata, else the URL's filename
+        filename = urlparse(url).path.rsplit("/", 1)[-1] or url
+        title = (result.get("title") or "").strip() or filename
+
+        return {
+            "title": title[:200],
+            "content": text,
+            "thumbnail_url": None,
+            "metadata": {
+                "is_document": True,
+                "document_type": node_type,
+                "file_type": file_type,
+                "source_url": url,
+                "page_count": result.get("page_count"),
+                "word_count": result.get("word_count"),
+            },
+        }
+
+    def _extract_document_url(self, url: str) -> Dict[str, Any]:
+        """Fetch a URL-hosted document (by extension) and extract its text."""
+        parsed = urlparse(url)
+        ext = parsed.path.rsplit(".", 1)[-1].lower() if "." in parsed.path else ""
+        file_type = ext if ext in ("pdf", "docx", "txt", "md") else "pdf"
+        response = httpx.get(url, timeout=30, follow_redirects=True, headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        })
+        response.raise_for_status()
+        return self._extract_document_bytes(response.content, file_type, url)
+
     # ==================== WEB PAGES ====================
 
     def _extract_webpage(self, url: str) -> Dict[str, Any]:
@@ -857,7 +927,12 @@ class IngestionService:
             # cleanly instead of feeding binary data through an HTML parser.
             content_type_header = response.headers.get("content-type", "").lower()
             if "application/pdf" in content_type_header or response.content[:5] == b"%PDF-":
-                raise ValueError("PDF content is not yet supported for extraction")
+                # A URL that looked like a webpage actually serves a PDF (common
+                # for extensionless links like arxiv.org/pdf/<id>). Extract the
+                # already-downloaded bytes instead of failing — must happen here,
+                # before any trafilatura/BeautifulSoup/Playwright path ever sees
+                # binary data.
+                return self._extract_document_bytes(response.content, "pdf", url)
 
             html = response.text
 

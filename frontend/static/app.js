@@ -596,7 +596,8 @@ function initIngestion() {
     document.addEventListener('drop', (e) => {
         e.preventDefault();
         // Check for image files first
-        const imageFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+        const droppedFiles = Array.from(e.dataTransfer.files || []);
+        const imageFiles = droppedFiles.filter(f => f.type.startsWith('image/'));
         if (imageFiles.length) {
             imageFiles.forEach(uploadImageFile);
             return;
@@ -606,6 +607,12 @@ function initIngestion() {
         if (text && text.startsWith('http')) {
             document.getElementById('urlInput').value = text;
             submitUrl();
+            return;
+        }
+        // A non-image local file (e.g. a PDF) was dropped — Tacit is URL-first,
+        // so nudge the user to drop the link instead of the file itself.
+        if (droppedFiles.length) {
+            showToast('Paste the link to the PDF — Tacit saves online content, not local files', 'error');
         }
     });
 }
@@ -980,8 +987,10 @@ async function openDetail(nodeId) {
             transcriptHTML = `<div class="detail-section"><h4>${isVideo ? 'Transcript' : 'Full Content'}</h4><div class="detail-transcript">${escapeHtml(node.content)}</div></div>`;
         }
 
-        // Action bar for video nodes
-        const actionBar = isVideo ? `
+        // Action bar for shareable content: videos and URL-hosted documents
+        // (PDF/DOCX/etc.) — both publish to /s (HTML) and /t (markdown).
+        const isDocument = ['pdf', 'document'].includes(node.type);
+        const actionBar = (isVideo || isDocument) ? `
             <div class="detail-actions">
                 <button class="detail-action-btn" onclick="copyTranscriptText('${node.id}', this)" title="Copy to clipboard">Copy</button>
                 <button class="detail-action-btn" onclick="downloadTranscriptMd('${node.id}')" title="Open as markdown page">.md</button>
@@ -2579,6 +2588,7 @@ function getTypeIcon(type) {
         webpage: '◉',
         note: '✎',
         document: '📄',
+        pdf: '📄',
         text: '✎',
         image: '🖼',
     };

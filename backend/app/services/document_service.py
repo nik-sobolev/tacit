@@ -3,6 +3,7 @@
 import structlog
 from typing import List, Dict, Any, Optional
 from pathlib import Path
+import io
 import PyPDF2
 import docx
 from datetime import datetime
@@ -39,12 +40,40 @@ class DocumentProcessor:
             logger.error("text_extraction_error", file_path=str(file_path), error=str(e))
             raise
 
-    def _extract_pdf(self, file_path: Path) -> Dict[str, Any]:
-        """Extract text from PDF"""
+    def extract_from_bytes(self, content: bytes, file_type: str, title_hint: str = None) -> Dict[str, Any]:
+        """Extract text from an in-memory document (bytes) without persisting it.
+
+        URL-first counterpart to extract_text(): used when a dropped URL resolves
+        to a PDF/DOCX/TXT/MD, so the source of record stays the URL and Tacit never
+        stores the file. Returns the same shape as extract_text plus an optional
+        'title' pulled from document metadata when available.
+        """
+        buf = io.BytesIO(content)
+        if file_type == "pdf":
+            result = self._extract_pdf(buf)
+        elif file_type == "docx":
+            result = self._extract_docx(buf)
+        elif file_type in ("txt", "md"):
+            result = self._extract_text_file(buf)
+        else:
+            raise ValueError(f"Unsupported file type: {file_type}")
+        result.setdefault("title", title_hint)
+        return result
+
+    def _extract_pdf(self, source) -> Dict[str, Any]:
+        """Extract text from a PDF given a path or a file-like/BytesIO object."""
         try:
-            with open(file_path, 'rb') as file:
+            file = open(source, 'rb') if isinstance(source, (str, Path)) else source
+            try:
                 pdf_reader = PyPDF2.PdfReader(file)
                 page_count = len(pdf_reader.pages)
+
+                # Prefer the PDF's embedded document title when present
+                doc_title = None
+                try:
+                    doc_title = (pdf_reader.metadata or {}).title
+                except Exception:
+                    doc_title = None
 
                 # Extract text from all pages
                 pages_text = []
@@ -65,19 +94,24 @@ class DocumentProcessor:
 
                 return {
                     'text': full_text,
+                    'title': (doc_title or None),
                     'page_count': page_count,
                     'word_count': word_count,
                     'chunks': chunks
                 }
+            finally:
+                if isinstance(source, (str, Path)):
+                    file.close()
 
         except Exception as e:
-            logger.error("pdf_extraction_error", file_path=str(file_path), error=str(e))
+            logger.error("pdf_extraction_error", source=str(source)[:200], error=str(e))
             raise
 
-    def _extract_docx(self, file_path: Path) -> Dict[str, Any]:
-        """Extract text from DOCX"""
+    def _extract_docx(self, source) -> Dict[str, Any]:
+        """Extract text from a DOCX given a path or a file-like/BytesIO object."""
         try:
-            doc = docx.Document(file_path)
+            # python-docx accepts a path string or a file-like object directly
+            doc = docx.Document(source)
 
             # Extract paragraphs
             paragraphs = [para.text for para in doc.paragraphs if para.text.strip()]
@@ -95,14 +129,19 @@ class DocumentProcessor:
             }
 
         except Exception as e:
-            logger.error("docx_extraction_error", file_path=str(file_path), error=str(e))
+            logger.error("docx_extraction_error", source=str(source)[:200], error=str(e))
             raise
 
-    def _extract_text_file(self, file_path: Path) -> Dict[str, Any]:
-        """Extract text from plain text or markdown file"""
+    def _extract_text_file(self, source) -> Dict[str, Any]:
+        """Extract text from a plain-text/markdown path or file-like/BytesIO object."""
         try:
-            with open(file_path, 'r', encoding='utf-8') as file:
-                full_text = file.read()
+            if isinstance(source, (str, Path)):
+                with open(source, 'r', encoding='utf-8') as file:
+                    full_text = file.read()
+            else:
+                # BytesIO / raw bytes buffer — decode leniently
+                raw = source.read()
+                full_text = raw.decode('utf-8', errors='replace') if isinstance(raw, bytes) else raw
 
             word_count = len(full_text.split())
 
@@ -117,7 +156,7 @@ class DocumentProcessor:
             }
 
         except Exception as e:
-            logger.error("text_file_extraction_error", file_path=str(file_path), error=str(e))
+            logger.error("text_file_extraction_error", source=str(source)[:200], error=str(e))
             raise
 
     def _create_chunks(
