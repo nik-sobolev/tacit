@@ -902,9 +902,9 @@ function showIOSShortcutModal(token) {
     });
 }
 
-// Set once the Chrome Web Store listing is live — swaps the modal's CTA from
-// a placeholder note to a real "Add to Chrome" link.
-const EXTENSION_STORE_URL = '';
+// Chrome Web Store listing is live — this swaps the modal's CTA to a real
+// "Add to Chrome" link instead of the pending-review placeholder.
+const EXTENSION_STORE_URL = 'https://chromewebstore.google.com/detail/save-to-tacit/ipmhnnngmpnafgemmbihpiifpkenpffj';
 
 function showExtensionSetupModal(token) {
     const modal = document.createElement('div');

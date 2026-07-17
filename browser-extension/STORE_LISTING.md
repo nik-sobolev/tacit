@@ -1,5 +1,14 @@
 # Chrome Web Store listing — copy-paste reference
 
+**Live listing:** https://chromewebstore.google.com/detail/save-to-tacit/ipmhnnngmpnafgemmbihpiifpkenpffj
+
+**The Overview/description text on the live listing right now is stale** — it
+still leads with X Articles and has picked up a line about "publish on social
+media of your choice," which isn't a real feature of this extension. Replace
+it with the text below in the Developer Dashboard's store listing editor,
+then submit the update for review (text-only listing edits typically review
+faster than a new package).
+
 ## Name
 Save to Tacit
 
@@ -7,14 +16,12 @@ Save to Tacit
 Productivity
 
 ## Short description (≤132 chars)
-Save any page to your Tacit account — including pages you need to be logged in to view, like X Articles.
+Clip any page to your Tacit account in one click — including pages you need to be logged in to view.
 
 ## Detailed description
 Tacit is a personal knowledge canvas — save articles, tweets, videos, and PDFs, and Tacit transcribes, summarizes, and connects them to everything else you've saved.
 
-This extension adds one thing the main app can't do on its own: save pages that require you to be logged in to view. X Articles are the main example — X has no way for an outside server to fetch that content, even with valid credentials, since it's built to only render for an active, real browser session.
-
-"Save to Tacit" solves this by working the other way around: instead of Tacit's servers trying to fetch the page, the extension captures the page exactly as your own browser already renders it — after you're logged in, after the page has loaded — and sends that directly to your Tacit account. No separate login step, no credentials shared with Tacit, nothing captured unless you click the button.
+"Save to Tacit" is a one-click page clipper, like a web clipper extension: click the icon, the current page lands on your canvas. It also handles something the main app can't do on its own — pages that require you to be logged in to view. Instead of Tacit's servers trying to fetch the page, the extension captures it exactly as your own browser already renders it — after you're logged in, after the page has loaded — and sends that directly to your Tacit account. No separate login step, no credentials shared with Tacit, nothing captured unless you click the button.
 
 Requires a free or paid Tacit account (trytacit.app) and a one-time personal access token from your account's Browser Extension settings.
 
