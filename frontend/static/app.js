@@ -902,28 +902,31 @@ function showIOSShortcutModal(token) {
     });
 }
 
+// Set once the Chrome Web Store listing is live — swaps the modal's CTA from
+// a placeholder note to a real "Add to Chrome" link.
+const EXTENSION_STORE_URL = '';
+
 function showExtensionSetupModal(token) {
     const modal = document.createElement('div');
     modal.className = 'ios-shortcut-modal';
+    const installStep = EXTENSION_STORE_URL
+        ? `<a href="${EXTENSION_STORE_URL}" target="_blank" rel="noopener" style="display:block;text-align:center;padding:10px;background:var(--primary);color:white;border-radius:4px;text-decoration:none;font-size:13px;font-weight:600;margin-bottom:16px">Add to Chrome</a>`
+        : `<p style="font-size:12px;color:var(--text-secondary);margin-bottom:16px">Chrome Web Store listing is pending review — check back shortly.</p>`;
     modal.innerHTML = `
         <div class="ios-shortcut-overlay"></div>
         <div class="ios-shortcut-panel">
             <div class="ios-shortcut-header">
-                <h3>Browser Extension</h3>
+                <h3>Save to Tacit</h3>
                 <button class="ios-shortcut-close">✕</button>
             </div>
             <div class="ios-shortcut-body">
-                <p style="font-size:13px;margin-bottom:16px">Use this for pages that need you to be logged in to read — X Articles are the main case. The extension saves the page exactly as your browser already sees it, so it works even when Tacit's own fetching can't get past a login wall.</p>
-                <ol style="font-size:13px;margin-bottom:16px;line-height:1.6">
-                    <li>Load the <code>browser-extension</code> folder as an unpacked extension in Chrome</li>
-                    <li>Open the extension popup, click Settings</li>
-                    <li>Paste your token below and save it</li>
-                    <li>On any page you want saved, click the extension icon → "Save this page"</li>
-                </ol>
+                <p style="font-size:13px;line-height:1.5;margin-bottom:16px">Clip any page straight to your canvas in one click — like a web clipper. It also handles pages that need you to be logged in to read, since it saves exactly what your browser already sees.</p>
+                ${installStep}
+                <p style="font-size:13px;line-height:1.5;margin-bottom:8px">After installing: open the extension, go to Settings, and paste in your token.</p>
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">Your API token (keep secret):</p>
                 <div style="display:flex;gap:8px">
-                    <input type="text" id="extTokenInput" readonly value="${token}" style="flex:1;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:12px;font-family:monospace" />
-                    <button id="copyExtTokenBtn" style="padding:8px 12px;background:var(--primary);color:white;border:none;border-radius:4px;cursor:pointer;white-space:nowrap">Copy</button>
+                    <input type="text" id="extTokenInput" readonly value="${token}" style="flex:1;padding:8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:12px;font-family:monospace" />
+                    <button id="copyExtTokenBtn" style="padding:8px 12px;background:var(--primary);color:white;border:none;border-radius:4px;cursor:pointer;white-space:nowrap;font-size:13px">Copy</button>
                 </div>
             </div>
         </div>

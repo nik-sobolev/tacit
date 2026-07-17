@@ -39,6 +39,15 @@ saveTokenBtn.addEventListener('click', async () => {
   await refreshTokenState();
 });
 
+// Chrome blocks content-script injection on its own internal pages and the
+// Web Store itself — catch this upfront with a clear message instead of
+// letting the cryptic "cannot be scripted" error surface as-is.
+function isRestrictedUrl(url) {
+  return /^(chrome|chrome-extension|edge|about|devtools):/.test(url) ||
+    /^https:\/\/chrome\.google\.com\/webstore/.test(url) ||
+    /^https:\/\/chromewebstore\.google\.com/.test(url);
+}
+
 saveBtn.addEventListener('click', async () => {
   const token = await getToken();
   if (!token) return;
@@ -49,6 +58,11 @@ saveBtn.addEventListener('click', async () => {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) throw new Error('No active tab');
+    if (isRestrictedUrl(tab.url || '')) {
+      setStatus("Can't save this page — try it on a regular webpage.", 'error');
+      saveBtn.disabled = false;
+      return;
+    }
 
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },

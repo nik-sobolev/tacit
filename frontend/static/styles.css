@@ -2041,11 +2041,14 @@ body {
     }
 }
 
-/* iOS Shortcut modal */
+/* iOS Shortcut modal — also used by the Browser Extension setup modal.
+   Both are launched from a button injected into Clerk's UserProfile modal,
+   which renders its own portal at a very high z-index — anything lower gets
+   stacked underneath it and is invisible even though it's technically open. */
 .ios-shortcut-modal {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    z-index: 600;
+    z-index: 2147483000;
     display: flex;
     align-items: center;
     justify-content: center;
