@@ -147,8 +147,12 @@
                     <!-- Cards injected here by JS -->
                 </div>
 
-                <!-- Empty state -->
-                <div id="emptyState" class="empty-state">
+                <!-- Empty state — starts hidden; the load state machine in app.js
+                     (setCanvasLoadStatus) is the only thing allowed to show this,
+                     and only once a fetch has resolved with zero nodes. Defaulting
+                     to visible here was the root cause of the "ghost town" flash
+                     for returning users. -->
+                <div id="emptyState" class="empty-state" style="display:none">
                     <svg width="40" height="40" viewBox="0 0 34 34" fill="none" xmlns="http://www.w3.org/2000/svg" class="empty-icon" aria-hidden="true">
                         <path d="M3 33 V3 H31 V31 H11 V11 H23 V23 H17.5" stroke="#C26C33" stroke-width="2.6" stroke-linecap="square"/>
                     </svg>
@@ -165,6 +169,60 @@
                         <span>Instagram</span>
                         <span>Articles</span>
                         <span>Any webpage</span>
+                    </div>
+                </div>
+
+                <!-- Canvas loading screen — shown while the nodes fetch is in
+                     flight (see beginCanvasLoading()/finishCanvasLoading() in
+                     app.js). Starts hidden; only the 250ms reveal timer or a
+                     genuinely slow load makes this visible, so fast loads never
+                     see it at all. -->
+                <div id="canvasLoader" class="canvas-loader" style="display:none" role="status" aria-live="polite">
+                    <span class="sr-only">Loading your canvas</span>
+
+                    <div class="canvas-loader-ghosts" aria-hidden="true">
+                        <svg width="100%" height="100%" preserveAspectRatio="none" class="canvas-loader-threads">
+                            <line x1="16%" y1="26%" x2="37%" y2="70%" class="tc-thread-line tc-thread-cream-a"></line>
+                            <line x1="82%" y1="22%" x2="63%" y2="64%" class="tc-thread-line tc-thread-cream-b"></line>
+                            <line x1="37%" y1="70%" x2="63%" y2="64%" class="tc-thread-line tc-thread-copper"></line>
+                            <line x1="16%" y1="26%" x2="82%" y2="22%" class="tc-thread-line tc-thread-cream-c"></line>
+                        </svg>
+                        <div class="tc-ghost-card" style="left:12%;top:22%;width:clamp(120px,13vw,190px);height:clamp(88px,9vw,132px);--r:-2deg;animation-delay:.15s"></div>
+                        <div class="tc-ghost-card" style="left:78%;top:18%;width:clamp(110px,12vw,170px);height:clamp(80px,8vw,120px);--r:1.6deg;animation-delay:.45s"></div>
+                        <div class="tc-ghost-card" style="left:8%;top:62%;width:clamp(110px,12vw,175px);height:clamp(82px,8vw,124px);--r:2deg;animation-delay:.7s"></div>
+                        <div class="tc-ghost-card" style="left:80%;top:60%;width:clamp(120px,13vw,185px);height:clamp(86px,9vw,128px);--r:-1.4deg;animation-delay:.95s"></div>
+                        <div class="tc-ghost-card" style="left:30%;top:74%;width:clamp(100px,11vw,160px);height:clamp(74px,7vw,112px);--r:1deg;animation-delay:1.2s"></div>
+                        <div class="tc-ghost-card" style="left:64%;top:78%;width:clamp(100px,11vw,155px);height:clamp(72px,7vw,108px);--r:-2.2deg;animation-delay:1.45s"></div>
+                    </div>
+
+                    <div class="canvas-loader-center">
+                        <div class="canvas-loader-mark">
+                            <div class="canvas-loader-glow"></div>
+                            <svg viewBox="0 0 34 34" fill="none" class="canvas-loader-mark-svg">
+                                <path d="M3 33 V3 H31 V31 H11 V11 H23 V23 H17.5" stroke="#C26C33" stroke-width="2.6" stroke-linecap="square"></path>
+                            </svg>
+                        </div>
+
+                        <div class="canvas-loader-verb-row">
+                            <span class="canvas-loader-dot"></span>
+                            <span id="canvasLoaderVerb" class="canvas-loader-verb">Untangling</span>
+                            <span class="canvas-loader-verb-static">/ your canvas</span>
+                        </div>
+
+                        <div class="canvas-loader-insight-wrap">
+                            <p id="canvasLoaderInsight" class="canvas-loader-insight"></p>
+                        </div>
+
+                        <div class="canvas-loader-progress">
+                            <div class="canvas-loader-track">
+                                <div id="canvasLoaderFill" class="canvas-loader-fill" style="width:0%"></div>
+                                <div class="canvas-loader-sweep"></div>
+                            </div>
+                            <div class="canvas-loader-counter-row">
+                                <span id="canvasLoaderCount"></span>
+                                <span id="canvasLoaderCategories"></span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </main>

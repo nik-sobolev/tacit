@@ -420,17 +420,206 @@ function scrollToNode(node) {
 }
 
 // ==================== GRAPH LOADING ====================
+//
+// Three-state load machine (see design_handoff_canvas_loading/README.md for
+// the full spec). This replaces the old boolean "nodes.length === 0" check,
+// which showed the "Your canvas is empty" onboarding whenever it ran before
+// the fetch resolved — a false "ghost town" flash for returning users with
+// real saves. #emptyState now starts hidden in the HTML itself; only
+// renderCanvasLoadStatus() below is allowed to reveal it, and only once a
+// fetch has genuinely resolved with zero nodes.
+//
+//   loading — fetch in flight / not started  -> show the loader
+//   empty   — fetch resolved, zero nodes     -> show onboarding
+//   ready   — fetch resolved, >=1 node       -> show the canvas
+//   error   — fetch failed                    -> never the empty state
+let canvasLoadStatus = 'loading';
+let canvasLoaderRevealTimer = null;
+let canvasLoaderVisibleSince = null;
+let canvasLoaderRotationTimers = { verb: null, insight: null, count: null };
+let canvasLoaderVerbIndex = 0;
+let canvasLoaderInsightIndex = 0;
+let canvasSummary = null; // {nodeCount, categories, topCategory} from /canvas/summary
+let canvasLoaderProgress = { count: 0, total: 0 };
+
+const CANVAS_LOADER_VERBS = ['Untangling', 'Reconnecting', 'Reweaving', 'Resurfacing', 'Threading', 'Retracing', 'Rehydrating', 'Rekindling', 'Reassembling'];
+
+// No {} placeholders — always safe to show, even before summary data lands.
+const CANVAS_LOADER_GENERIC_INSIGHTS = [
+    `Dusting off that article you starred, read half of, and swore you'd finish.`,
+    `Your "someday" pile has quietly become an actual library.`,
+    `Two ideas that never met are about to be introduced.`,
+    `That 40-minute video? Already transcribed. You're welcome.`,
+    `Pulling your oldest save back to the surface — it has aged well.`,
+    `Almost there. Straightening the cards you left at a slight angle.`,
+];
+
+function canvasLoaderInsightLines() {
+    // Personalized lines only join the rotation once real numbers are in —
+    // never render a fake nodeCount/categories/topCategory.
+    if (!canvasSummary) return CANVAS_LOADER_GENERIC_INSIGHTS;
+    const { nodeCount, categories, topCategory } = canvasSummary;
+    const lines = [...CANVAS_LOADER_GENERIC_INSIGHTS];
+    if (nodeCount != null && categories != null) {
+        lines.push(`Reweaving ${nodeCount} nodes across ${categories} categories.`);
+    }
+    if (categories) {
+        lines.push(`${categories} categories, and not one of them is named "misc." Respectable.`);
+    }
+    if (topCategory) {
+        lines.push(`Found a suspicious little thread between "${topCategory}" and a tweet you forgot you saved.`);
+        lines.push(`Retracing where "${topCategory}" quietly leaked into everything else you kept.`);
+    }
+    return lines;
+}
+
+function renderCanvasLoaderVerb() {
+    const el = document.getElementById('canvasLoaderVerb');
+    if (!el) return;
+    el.textContent = CANVAS_LOADER_VERBS[canvasLoaderVerbIndex];
+    el.style.animation = 'none';
+    void el.offsetWidth; // force reflow so the fade replays on every change
+    el.style.animation = '';
+}
+
+function renderCanvasLoaderInsight() {
+    const el = document.getElementById('canvasLoaderInsight');
+    if (!el) return;
+    const lines = canvasLoaderInsightLines();
+    el.textContent = lines[canvasLoaderInsightIndex % lines.length];
+    el.style.animation = 'none';
+    void el.offsetWidth;
+    el.style.animation = '';
+}
+
+function renderCanvasLoaderProgress() {
+    const fill = document.getElementById('canvasLoaderFill');
+    const countEl = document.getElementById('canvasLoaderCount');
+    const catsEl = document.getElementById('canvasLoaderCategories');
+    const { count, total } = canvasLoaderProgress;
+    if (fill) fill.style.width = total ? `${Math.round((count / total) * 100)}%` : '0%';
+    if (countEl) countEl.textContent = total ? `${count} / ${total} nodes` : '';
+    if (catsEl) catsEl.textContent = (canvasSummary && canvasSummary.categories != null) ? `${canvasSummary.categories} categories` : '';
+}
+
+function startCanvasLoaderRotations() {
+    stopCanvasLoaderRotations();
+    canvasLoaderVerbIndex = 0;
+    canvasLoaderInsightIndex = 0;
+    renderCanvasLoaderVerb();
+    renderCanvasLoaderInsight();
+    renderCanvasLoaderProgress();
+    canvasLoaderRotationTimers.verb = setInterval(() => {
+        canvasLoaderVerbIndex = (canvasLoaderVerbIndex + 1) % CANVAS_LOADER_VERBS.length;
+        renderCanvasLoaderVerb();
+    }, 1500);
+    canvasLoaderRotationTimers.insight = setInterval(() => {
+        canvasLoaderInsightIndex++;
+        renderCanvasLoaderInsight();
+    }, 3400);
+    // Real total (from /canvas/summary) once available; count eases toward
+    // it and is capped at 90% until the actual /graph fetch resolves, which
+    // snaps it to 100% in finishCanvasLoading() — never a fabricated total.
+    canvasLoaderRotationTimers.count = setInterval(() => {
+        const { total } = canvasLoaderProgress;
+        if (!total) return;
+        const cap = Math.floor(total * 0.9);
+        if (canvasLoaderProgress.count >= cap) return;
+        const step = Math.max(1, Math.ceil((cap - canvasLoaderProgress.count) / 10));
+        canvasLoaderProgress.count = Math.min(cap, canvasLoaderProgress.count + step);
+        renderCanvasLoaderProgress();
+    }, 110);
+}
+
+function stopCanvasLoaderRotations() {
+    Object.values(canvasLoaderRotationTimers).forEach(t => t && clearInterval(t));
+    canvasLoaderRotationTimers = { verb: null, insight: null, count: null };
+}
+
+function renderCanvasLoadStatus() {
+    const empty = document.getElementById('emptyState');
+    if (empty) empty.style.display = (canvasLoadStatus === 'empty') ? 'flex' : 'none';
+}
+
+function beginCanvasLoading() {
+    canvasLoadStatus = 'loading';
+    canvasLoaderProgress = { count: 0, total: 0 };
+    canvasSummary = null;
+    clearTimeout(canvasLoaderRevealTimer);
+    // Anti-flicker: only reveal the loader if still loading after 250ms, so
+    // fast loads never see it at all.
+    canvasLoaderRevealTimer = setTimeout(() => {
+        if (canvasLoadStatus === 'loading') revealCanvasLoader();
+    }, 250);
+}
+
+function revealCanvasLoader() {
+    const loader = document.getElementById('canvasLoader');
+    if (!loader) return;
+    loader.style.display = 'block';
+    canvasLoaderVisibleSince = Date.now();
+    startCanvasLoaderRotations();
+}
+
+function finishCanvasLoading(nextStatus) {
+    clearTimeout(canvasLoaderRevealTimer);
+    const loader = document.getElementById('canvasLoader');
+    const isVisible = loader && loader.style.display !== 'none' && loader.style.display !== '';
+
+    const applyFinalState = () => {
+        if (loader) loader.style.display = 'none';
+        stopCanvasLoaderRotations();
+        canvasLoaderVisibleSince = null;
+        canvasLoadStatus = nextStatus;
+        renderCanvasLoadStatus();
+    };
+
+    if (isVisible) {
+        canvasLoaderProgress.count = canvasLoaderProgress.total;
+        renderCanvasLoaderProgress();
+        // Anti-flicker: enforce a 600ms minimum display once shown, so it
+        // never strobes on a load that finishes right after the reveal —
+        // most noticeable on near-instant mobile tab switches.
+        const elapsed = Date.now() - canvasLoaderVisibleSince;
+        setTimeout(applyFinalState, Math.max(0, 600 - elapsed));
+    } else {
+        applyFinalState();
+    }
+}
+
+async function fetchCanvasSummary() {
+    try {
+        const res = await apiFetch(`${API_BASE}/canvas/summary`);
+        if (!res.ok) return;
+        const data = await res.json();
+        canvasSummary = data;
+        canvasLoaderProgress.total = data.nodeCount || 0;
+        // Reflect the newly-available data immediately rather than waiting
+        // for the next rotation tick.
+        renderCanvasLoaderInsight();
+        renderCanvasLoaderProgress();
+    } catch (e) {
+        // Best-effort — the loader falls back to generic insight lines and
+        // an indeterminate-only progress bar if this never resolves.
+    }
+}
 
 async function loadGraph() {
+    beginCanvasLoading();
+    fetchCanvasSummary(); // fire-and-forget; personalizes the loader early
+
     try {
         const res = await apiFetch(`${API_BASE}/graph`);
         const data = await res.json();
         graphData = data;
         renderGraph(data);
-        updateEmptyState(data.nodes.length);
         flagDuplicates();
+        finishCanvasLoading(data.nodes.length === 0 ? 'empty' : 'ready');
     } catch (e) {
         console.error('[Tacit] loadGraph error:', e);
+        finishCanvasLoading('error');
+        showToast('Could not load your canvas — retrying…', 'error');
+        setTimeout(() => { if (canvasLoadStatus === 'error') loadGraph(); }, 2000);
     }
 }
 
@@ -2621,7 +2810,11 @@ function closeTour() {
 }
 
 function updateEmptyState(nodeCount) {
-    document.getElementById('emptyState').style.display = nodeCount === 0 ? 'flex' : 'none';
+    // Called by live, post-load node-count changes (delete the last node,
+    // add the first one, etc.) — always past the initial loading race by
+    // the time any of these fire, so this only ever toggles empty <-> ready.
+    canvasLoadStatus = nodeCount === 0 ? 'empty' : 'ready';
+    renderCanvasLoadStatus();
 }
 
 // ==================== CATEGORY SIDEBAR ====================

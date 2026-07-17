@@ -82,6 +82,32 @@ async def list_notes(current_user: dict = Depends(get_current_user)):
         }
 
 
+@router.get("/canvas/summary")
+async def get_canvas_summary(current_user: dict = Depends(get_current_user)):
+    """Lightweight canvas summary — {nodeCount, categories, topCategory} —
+    for the canvas loading screen to personalize with before the full
+    /graph payload (which includes content/tags/etc. for every node) has
+    resolved. Only pulls node_meta, not the full row, to stay fast."""
+    try:
+        db = get_database()
+        with db.session_scope() as session:
+            uid = current_user["id"]
+            node_count = session.query(func.count(NodeDB.id)).filter_by(user_id=uid).scalar() or 0
+            rows = session.query(NodeDB.node_meta).filter_by(user_id=uid).all()
+            cats = {}
+            for (meta,) in rows:
+                cat = (meta or {}).get("category", "Uncategorized") or "Uncategorized"
+                cats[cat] = cats.get(cat, 0) + 1
+            top_category = max(cats, key=cats.get) if cats else None
+            return {
+                "nodeCount": node_count,
+                "categories": len(cats),
+                "topCategory": top_category,
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/categories")
 async def get_categories(current_user: dict = Depends(get_current_user)):
     """Return categories for the current user's nodes."""
