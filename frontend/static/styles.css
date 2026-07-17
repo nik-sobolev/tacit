@@ -1628,7 +1628,11 @@ body {
     transition: opacity 0.2s, transform 0.2s;
     pointer-events: none;
     white-space: nowrap;
-    z-index: 9999;
+    /* Must outrank every modal, including .ios-shortcut-modal's
+       2147483000 — a toast confirming an action taken inside a modal
+       (e.g. "Token copied") needs to render above it, not get dimmed
+       under its semi-transparent overlay. */
+    z-index: 2147483647;
     box-shadow: var(--shadow-lg);
 }
 
