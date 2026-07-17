@@ -321,6 +321,16 @@ function initCanvas() {
         }
     });
 
+    // Mobile equivalent of desktop's click-on-empty-canvas dehighlight
+    // (below, in the mouseup handler) — mobile has no drag-to-pan to
+    // disambiguate from, so a plain tap on empty background is enough.
+    viewport.addEventListener('click', (e) => {
+        if (!isMobile()) return;
+        if (e.target === viewport || e.target === surface || e.target.id === 'edgesLayer') {
+            clearCategoryFilter();
+        }
+    });
+
     document.addEventListener('mousemove', (e) => {
         lastMouseClientX = e.clientX;
         lastMouseClientY = e.clientY;
@@ -440,6 +450,10 @@ function renderGraph(data) {
 
     // Draw edges
     drawEdges(data.edges);
+
+    // Land at the top (= newest, since createCard() prepends on mobile)
+    // instead of wherever the browser happened to leave scroll position.
+    if (isMobile()) document.getElementById('canvasViewport').scrollTop = 0;
 }
 
 // ==================== CARDS ====================
@@ -485,7 +499,13 @@ function createCard(node) {
         }
     });
 
-    document.getElementById('canvasSurface').appendChild(card);
+    // Mobile is a real DOM-ordered flex list (see the max-width:768px CSS
+    // rules on #canvasSurface), not the desktop free-form canvas — insertion
+    // order IS visual order there. Prepending means newest lands on top,
+    // both for live new-node creation and (since every renderGraph() card
+    // goes through here too) for the initial load's oldest-first API order.
+    const surface = document.getElementById('canvasSurface');
+    if (isMobile()) surface.prepend(card); else surface.appendChild(card);
     nodeElements[node.id] = card;
 }
 
@@ -1566,6 +1586,10 @@ function mobileTab(tab) {
     const chatPanel = document.getElementById('chatPanel');
     if (tab === 'chat') {
         chatPanel.classList.add('mobile-visible');
+        // Land at the input, not the top of message history — same
+        // scroll-to-bottom idiom addMessage() already uses.
+        const messages = document.getElementById('messages');
+        if (messages) messages.scrollTop = messages.scrollHeight;
         // Focus input
         setTimeout(() => document.getElementById('messageInput')?.focus(), 100);
     } else {
