@@ -1681,9 +1681,18 @@ function mobileShowAdd() {
     // is always a URL bar with no intermediate "what do you want to add?"
     // choice. Notes are reachable via the switch link below instead of
     // costing everyone an extra tap for the common case.
+    //
+    // Explicit close button: the only way out used to be tapping the dimmed
+    // backdrop above the sheet, which isn't discoverable — someone who just
+    // wants out has no obvious affordance and is stuck looking at an open
+    // sheet with nothing to fill in.
+    const closeBtn = '<button class="mobile-add-close" type="button">✕</button>';
     const urlUI = `
         <div class="mobile-add-sheet">
-            <p style="font-size:14px;color:var(--text-secondary);margin-bottom:12px">Add URL to canvas</p>
+            <div class="mobile-add-sheet-header">
+                <p style="font-size:14px;color:var(--text-secondary)">Add URL to canvas</p>
+                ${closeBtn}
+            </div>
             <input id="mobileUrlInput" type="url" placeholder="https://..." inputmode="url" autofocus>
             <button id="mobileAddBtn">Add to Canvas</button>
             ${noteLink}
@@ -1692,7 +1701,10 @@ function mobileShowAdd() {
 
     const noteUI = `
         <div class="mobile-add-sheet">
-            <p style="font-size:14px;color:var(--text-secondary);margin-bottom:12px">Write a note</p>
+            <div class="mobile-add-sheet-header">
+                <p style="font-size:14px;color:var(--text-secondary)">Write a note</p>
+                ${closeBtn}
+            </div>
             <input id="mobileNoteTitle" type="text" placeholder="Title (optional)" style="margin-bottom:8px">
             <textarea id="mobileNoteContent" placeholder="Your note..." style="min-height:120px;margin-bottom:12px"></textarea>
             <button id="mobileAddNoteBtn">Save Note</button>
@@ -1710,6 +1722,7 @@ function mobileShowAdd() {
             setTimeout(() => modal.querySelector('#new-mobileUrlInput')?.focus(), 100);
             modal.querySelector('#new-mobileAddBtn')?.addEventListener('click', handleAddUrl);
             modal.querySelector('.mobile-add-switch')?.addEventListener('click', () => updateUI('note'));
+            modal.querySelector('.mobile-add-close')?.addEventListener('click', () => modal.remove());
 
             // Best-effort clipboard prefill — mobile has no keyboard paste gesture,
             // so this is the closest equivalent to desktop's paste-on-canvas. Must
@@ -1729,10 +1742,9 @@ function mobileShowAdd() {
             setTimeout(() => modal.querySelector('#new-mobileNoteContent')?.focus(), 100);
             modal.querySelector('#new-mobileAddNoteBtn')?.addEventListener('click', handleAddNote);
             modal.querySelector('.mobile-add-switch')?.addEventListener('click', () => updateUI('url'));
+            modal.querySelector('.mobile-add-close')?.addEventListener('click', () => modal.remove());
         }
     };
-
-    updateUI('url');
 
     const handleAddUrl = async () => {
         const url = modal.querySelector('#new-mobileUrlInput')?.value.trim();
@@ -1776,6 +1788,8 @@ function mobileShowAdd() {
             console.error('[Tacit] note creation error:', e);
         }
     };
+
+    updateUI('url');
 
     modal.addEventListener('click', (e) => {
         if (e.target === modal) modal.remove();

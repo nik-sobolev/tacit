@@ -1898,6 +1898,24 @@ body {
         width: 100%;
     }
 
+    .mobile-add-sheet-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+    }
+
+    .mobile-add-close {
+        width: auto !important;
+        background: none !important;
+        color: var(--text-secondary) !important;
+        border: none !important;
+        font-size: 20px !important;
+        line-height: 1 !important;
+        padding: 4px 8px !important;
+        cursor: pointer;
+    }
+
     .mobile-add-sheet input {
         width: 100%;
         background: var(--bg);
