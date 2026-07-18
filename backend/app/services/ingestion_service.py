@@ -1429,7 +1429,15 @@ class IngestionService:
             if cookies_opts and cookies_opts.get("cookiefile"):
                 playwright_cookies = self._netscape_cookiefile_to_playwright(cookies_opts["cookiefile"])
 
-            _PLAYWRIGHT_LAUNCH_SEMAPHORE.acquire()
+            # Bounded wait, not a blocking acquire(): re-enabling TWEET_PLAYWRIGHT_FALLBACK
+            # by default (see its own comment) routes far more traffic through this single
+            # process-wide slot, each hold now up to ~35-40s (30s goto + 3s settle + launch/
+            # close). An unbounded acquire() here would let a burst of concurrent tweet/
+            # webpage extractions each pin a thread in the shared run_in_executor pool
+            # indefinitely waiting their turn, starving unrelated background work (new
+            # ingests, chat's process_node) app-wide. Fail one request cleanly instead.
+            if not _PLAYWRIGHT_LAUNCH_SEMAPHORE.acquire(timeout=45):
+                raise ValueError(f"Browser extraction busy, try again shortly ({url})")
             try:
                 with sync_playwright() as p:
                     browser = p.chromium.launch(**launch_kwargs)
