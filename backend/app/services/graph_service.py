@@ -55,9 +55,14 @@ class GraphService:
                     return
 
                 # Get existing nodes for context (before adding this one to vector DB).
-                # ChromaDB has no per-tenant isolation, so re-verify ownership in SQL
-                # before any of this reaches the agent prompt (see filter_owned_ids).
-                existing = self.vector_service.search_nodes(node.content[:2000] if node.content else node.title or "", limit=5)
+                # Scoped to this user's nodes at the query level, but still re-verified
+                # in SQL below — legacy nodes indexed before user_id was added to Chroma
+                # metadata won't match the filter and would otherwise leak across tenants.
+                existing = self.vector_service.search_nodes(
+                    node.content[:2000] if node.content else node.title or "",
+                    limit=5,
+                    filter={"user_id": node.user_id},
+                )
                 existing_ids = {n["id"] for n in existing if n["id"] != node_id}
                 owned_existing_ids = filter_owned_ids(session, NodeDB, existing_ids, node.user_id)
                 existing_summary = "\n".join(
@@ -76,6 +81,7 @@ class GraphService:
                 node_created_at = node.created_at
                 node_title = node.title
                 node_meta_in = dict(node.node_meta or {})
+                node_user_id = node.user_id
             finally:
                 session.close()
 
@@ -124,6 +130,7 @@ class GraphService:
                     "created_at": node_created_at.isoformat() if node_created_at else "",
                     "category": meta.get("category", ""),
                     "purpose": meta.get("purpose", ""),
+                    "user_id": node_user_id or "",
                 }
             )
 
@@ -329,9 +336,10 @@ Rules:
     # ==================== AUTO-LINKING ====================
 
     def auto_link(self, node_id: str, threshold: float = 0.7) -> List[EdgeDB]:
-        """Find semantically similar nodes and create edges. search_nodes queries
-        ChromaDB across every tenant, so candidates are re-verified as owned by
-        node_id's own user before any edge gets created."""
+        """Find semantically similar nodes and create edges. search_nodes is scoped
+        to node_id's own user, but candidates are still re-verified as owned in SQL
+        before any edge gets created — legacy nodes indexed before user_id was added
+        to Chroma metadata won't match the filter and would otherwise leak across tenants."""
         session = self.db.get_session()
         try:
             node = session.query(NodeDB).filter_by(id=node_id).first()
@@ -339,7 +347,9 @@ Rules:
                 return []
 
             query = f"{node.title or ''} {node.summary or ''}"
-            similar = self.vector_service.search_nodes(query, limit=6)
+            similar = self.vector_service.search_nodes(
+                query, limit=6, filter={"user_id": node.user_id}
+            )
             candidate_ids = {c["id"] for c in similar if c["id"] != node_id}
             owned_candidate_ids = filter_owned_ids(session, NodeDB, candidate_ids, node.user_id)
 

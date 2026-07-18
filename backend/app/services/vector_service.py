@@ -213,7 +213,12 @@ class VectorService:
             logger.error("node_add_error", node_id=node_id, error=str(e))
             raise
 
-    def search_nodes(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def search_nodes(
+        self,
+        query: str,
+        limit: int = 5,
+        filter: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
         """Search canvas nodes semantically"""
         try:
             count = self.nodes_collection.count()
@@ -221,7 +226,8 @@ class VectorService:
                 return []
             results = self.nodes_collection.query(
                 query_texts=[query],
-                n_results=min(limit, count)
+                n_results=min(limit, count),
+                where=filter if filter else None
             )
             formatted = []
             if results and results['ids'] and len(results['ids'][0]) > 0:

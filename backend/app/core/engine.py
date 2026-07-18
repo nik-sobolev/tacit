@@ -1095,7 +1095,9 @@ The user is looking for specific information from their knowledge base.
 
         if name == "search_canvas_nodes":
             query = inputs.get("query", "")
-            nodes = self.vector_service.search_nodes(query, limit=5)
+            nodes = self.vector_service.search_nodes(
+                query, limit=5, filter={"user_id": self._current_user_id}
+            )
             node_ids = {n["id"] for n in nodes}
             db_session = self.db.get_session()
             try:
@@ -1225,7 +1227,9 @@ The user is looking for specific information from their knowledge base.
 
         if name == "focus_canvas_node":
             query = inputs.get("query", "")
-            nodes = self.vector_service.search_nodes(query, limit=5)
+            nodes = self.vector_service.search_nodes(
+                query, limit=5, filter={"user_id": self._current_user_id}
+            )
             node_ids = {n["id"] for n in nodes}
             db_session = self.db.get_session()
             try:
