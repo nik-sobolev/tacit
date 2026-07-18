@@ -520,7 +520,8 @@ class TacitEngine:
                 query=query,
                 context_limit=self.config.context_top_k,
                 document_limit=self.config.search_top_k,
-                node_limit=10
+                node_limit=10,
+                node_filter={"user_id": user_id} if user_id else None
             )
 
             relevant_contexts = [
@@ -536,11 +537,14 @@ class TacitEngine:
             # For temporal queries, also include recent nodes sorted by date.
             relevant_nodes = results.get("nodes", [])
 
-            # ChromaDB has no per-tenant isolation — search_all() queries across every
-            # user's embeddings, so results here can include other users' private nodes,
-            # contexts, and document chunks. Re-verify ownership against SQL (source of
-            # truth for user_id) before any of this reaches the prompt. filter_owned_ids
-            # treats a missing user_id as "owns nothing" rather than skipping the check.
+            # Nodes are now scoped to this user at the query level (node_filter above),
+            # but contexts/documents still have no user_id in their Chroma metadata, so
+            # search_all() queries those across every user's embeddings — results here
+            # can include other users' private contexts and document chunks. Re-verify
+            # ownership against SQL (source of truth for user_id) before any of this
+            # reaches the prompt, for all three categories (legacy nodes indexed before
+            # the filter existed won't match it either). filter_owned_ids treats a
+            # missing user_id as "owns nothing" rather than skipping the check.
             node_ids = {n["id"] for n in relevant_nodes}
             context_ids = {c["id"] for c in relevant_contexts}
             document_ids = {
@@ -1087,7 +1091,7 @@ The user is looking for specific information from their knowledge base.
         if name == "search_canvas_nodes":
             query = inputs.get("query", "")
             nodes = self.vector_service.search_nodes(
-                query, limit=5, filter={"user_id": self._current_user_id}
+                query, limit=5, filter={"user_id": self._current_user_id or ""}
             )
             node_ids = {n["id"] for n in nodes}
             db_session = self.db.get_session()
@@ -1219,7 +1223,7 @@ The user is looking for specific information from their knowledge base.
         if name == "focus_canvas_node":
             query = inputs.get("query", "")
             nodes = self.vector_service.search_nodes(
-                query, limit=5, filter={"user_id": self._current_user_id}
+                query, limit=5, filter={"user_id": self._current_user_id or ""}
             )
             node_ids = {n["id"] for n in nodes}
             db_session = self.db.get_session()

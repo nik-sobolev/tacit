@@ -61,7 +61,7 @@ class GraphService:
                 existing = self.vector_service.search_nodes(
                     node.content[:2000] if node.content else node.title or "",
                     limit=5,
-                    filter={"user_id": node.user_id},
+                    filter={"user_id": node.user_id or ""},
                 )
                 existing_ids = {n["id"] for n in existing if n["id"] != node_id}
                 owned_existing_ids = filter_owned_ids(session, NodeDB, existing_ids, node.user_id)
@@ -348,7 +348,7 @@ Rules:
 
             query = f"{node.title or ''} {node.summary or ''}"
             similar = self.vector_service.search_nodes(
-                query, limit=6, filter={"user_id": node.user_id}
+                query, limit=6, filter={"user_id": node.user_id or ""}
             )
             candidate_ids = {c["id"] for c in similar if c["id"] != node_id}
             owned_candidate_ids = filter_owned_ids(session, NodeDB, candidate_ids, node.user_id)
