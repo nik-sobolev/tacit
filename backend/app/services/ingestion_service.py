@@ -456,8 +456,27 @@ class IngestionService:
                 logger.info("tiktok_cloud_transcription_ok", url=url, length=len(transcript_text))
         except Exception as e:
             logger.error("tiktok_transcription_failed", url=url, error=str(e))
+            # TikTok's yt-dlp audio path is bot-blocked often enough (see
+            # ROADMAP.md's AssemblyAI item — the durable fix) that failing this
+            # hard, with zero content, on every block is worse than a degraded
+            # result. Fall back to the public oEmbed endpoint (title/author/
+            # thumbnail, no transcript) so the node lands as a partial success
+            # instead of a blank error card. oEmbed only covers tiktok.com (not
+            # Instagram, which also runs through this function) and is itself
+            # best-effort — if it also fails, still raise the original error.
+            if "tiktok.com" in url.lower():
+                try:
+                    fallback = self._extract_tiktok_oembed(url)
+                    fallback["metadata"] = {
+                        **fallback.get("metadata", {}),
+                        "transcript_unavailable": True,
+                        "transcription_error": str(e)[:300],
+                    }
+                    logger.warning("tiktok_oembed_degrade_used", url=url, error=str(e))
+                    return fallback
+                except Exception as oembed_err:
+                    logger.warning("tiktok_oembed_fallback_failed", url=url, error=str(oembed_err))
             # Re-raise to ensure node is marked as error and can be retried
-            # Do NOT fall back to oEmbed only - if we can't get a transcript, treat as failure
             raise
 
         if transcript_text and len(transcript_text.strip()) >= 10:
@@ -832,14 +851,16 @@ class IngestionService:
             # Article) and there's no video transcript either — try rendering the
             # page directly.
             #
-            # Gated behind TWEET_PLAYWRIGHT_FALLBACK (default off): launching
-            # Chromium here appears to OOM-crash the production instance (Render
-            # has a known memory ceiling — see the earlier "Render OOM crash loop"
-            # fix). Verified working locally; disabled in prod until memory usage
-            # is confirmed safe. Without this fallback, these tweets (X Articles,
-            # protected accounts, media-only posts with no video) fail cleanly
-            # with status="error" instead of crashing the app.
-            if os.getenv("TWEET_PLAYWRIGHT_FALLBACK", "").lower() not in ("1", "true", "yes"):
+            # Gated behind TWEET_PLAYWRIGHT_FALLBACK (default on): originally
+            # defaulted off because launching Chromium here appeared to OOM-crash
+            # the production instance. Since then, _PLAYWRIGHT_LAUNCH_SEMAPHORE
+            # was added to cap concurrent Chromium launches to 1 process-wide, and
+            # _extract_webpage_browser gained a guaranteed browser.close() (it used
+            # to leak a Chromium process on any goto() timeout/exception) — the
+            # same hardening X_ARTICLE_PLAYWRIGHT_FALLBACK already relies on with
+            # its default-on. Kept as an env var so it can be flipped off again if
+            # memory pressure resurfaces on Render.
+            if os.getenv("TWEET_PLAYWRIGHT_FALLBACK", "true").lower() not in ("1", "true", "yes"):
                 raise ValueError(
                     f"Could not extract text content for tweet {url} "
                     "(oEmbed had no body text, no video found; browser fallback disabled)"
@@ -1408,13 +1429,30 @@ class IngestionService:
             if cookies_opts and cookies_opts.get("cookiefile"):
                 playwright_cookies = self._netscape_cookiefile_to_playwright(cookies_opts["cookiefile"])
 
-            _PLAYWRIGHT_LAUNCH_SEMAPHORE.acquire()
+            # Bounded wait, not a blocking acquire(): re-enabling TWEET_PLAYWRIGHT_FALLBACK
+            # by default (see its own comment) routes far more traffic through this single
+            # process-wide slot, each hold now up to ~35-40s (30s goto + 3s settle + launch/
+            # close). An unbounded acquire() here would let a burst of concurrent tweet/
+            # webpage extractions each pin a thread in the shared run_in_executor pool
+            # indefinitely waiting their turn, starving unrelated background work (new
+            # ingests, chat's process_node) app-wide. Fail one request cleanly instead.
+            if not _PLAYWRIGHT_LAUNCH_SEMAPHORE.acquire(timeout=45):
+                raise ValueError(f"Browser extraction busy, try again shortly ({url})")
             try:
                 with sync_playwright() as p:
                     browser = p.chromium.launch(**launch_kwargs)
                     try:
                         context = browser.new_context(
-                            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                            locale="en-US",
+                        )
+                        # Headless Chromium's default fingerprint (navigator.webdriver
+                        # === true) is exactly what Cloudflare-style bot-challenges key
+                        # off — confirmed live on a .gov site behind Cloudflare that
+                        # otherwise just hung until timeout. Doesn't defeat every
+                        # anti-bot system, but removes the single cheapest tell.
+                        context.add_init_script(
+                            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
                         )
                         if playwright_cookies:
                             try:
@@ -1422,8 +1460,11 @@ class IngestionService:
                             except Exception as e:
                                 logger.warning("playwright_cookie_injection_failed", url=url, error=str(e))
                         page = context.new_page()
-                        # Use domcontentloaded — sites like x.com never reach networkidle
-                        page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                        # Use domcontentloaded — sites like x.com never reach networkidle.
+                        # 30s (was 15s) — bot-challenge interstitials (Cloudflare "Just a
+                        # moment...", X's Article gate) routinely take longer than 15s to
+                        # resolve or respond.
+                        page.goto(url, wait_until="domcontentloaded", timeout=30000)
                         page.wait_for_timeout(3000)
 
                         title = page.title()

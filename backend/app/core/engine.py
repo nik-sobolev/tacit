@@ -11,6 +11,7 @@ from anthropic import Anthropic, APIStatusError
 
 from .config import TacitConfig
 from ..services.vector_service import VectorService
+from ..services.ingestion_service import DEFERRED_EXTRACTION_TYPES
 from ..models.chat import ChatMode
 from ..db.database import get_database, ConversationDB, MessageDB, NodeDB, EdgeDB, PersonDB, ContextDB, DocumentDB, filter_owned_ids
 
@@ -208,9 +209,12 @@ class TacitEngine:
         # Build enhanced prompt with knowledge
         system_prompt = self._build_prompt(mode, knowledge)
 
-        # People tools always on; canvas tools only when linking intent detected
-        enable_canvas_tools = self._has_linking_intent(user_message)
-        enable_ingest_tool = True  # URL + note tools always available; Claude decides when to call each
+        # All tool categories always available; Claude decides when to call each
+        # (previously canvas tools were gated per-message on a linking-intent keyword
+        # check, which caused the model to see a different tool list turn-to-turn and
+        # incorrectly deny having canvas capabilities when the gate was closed)
+        enable_canvas_tools = True
+        enable_ingest_tool = True
 
         # Stash user_id so chaos_canvas tool can scope to the right user
         self._current_user_id = user_id
@@ -516,7 +520,8 @@ class TacitEngine:
                 query=query,
                 context_limit=self.config.context_top_k,
                 document_limit=self.config.search_top_k,
-                node_limit=10
+                node_limit=10,
+                node_filter={"user_id": user_id} if user_id else None
             )
 
             relevant_contexts = [
@@ -532,11 +537,14 @@ class TacitEngine:
             # For temporal queries, also include recent nodes sorted by date.
             relevant_nodes = results.get("nodes", [])
 
-            # ChromaDB has no per-tenant isolation — search_all() queries across every
-            # user's embeddings, so results here can include other users' private nodes,
-            # contexts, and document chunks. Re-verify ownership against SQL (source of
-            # truth for user_id) before any of this reaches the prompt. filter_owned_ids
-            # treats a missing user_id as "owns nothing" rather than skipping the check.
+            # Nodes are now scoped to this user at the query level (node_filter above),
+            # but contexts/documents still have no user_id in their Chroma metadata, so
+            # search_all() queries those across every user's embeddings — results here
+            # can include other users' private contexts and document chunks. Re-verify
+            # ownership against SQL (source of truth for user_id) before any of this
+            # reaches the prompt, for all three categories (legacy nodes indexed before
+            # the filter existed won't match it either). filter_owned_ids treats a
+            # missing user_id as "owns nothing" rather than skipping the check.
             node_ids = {n["id"] for n in relevant_nodes}
             context_ids = {c["id"] for c in relevant_contexts}
             document_ids = {
@@ -831,22 +839,9 @@ The user is looking for specific information from their knowledge base.
         }
     ]
 
-    # ==================== LINKING INTENT ====================
-
-    _LINKING_KEYWORDS = {
-        "link", "connect", "relate", "associate", "tie", "attach",
-        "unlink", "disconnect", "detach", "remove", "delete",
-        "find", "locate", "open", "highlight", "focus",
-    }
-
-    _LINKING_PHRASES = ("take me to", "pull up", "where is", "where's")
+    # ==================== URL DETECTION ====================
 
     _URL_RE = re.compile(r'https?://\S+', re.IGNORECASE)
-
-    def _has_linking_intent(self, message: str) -> bool:
-        lower = message.lower()
-        words = set(lower.split())
-        return bool(words & self._LINKING_KEYWORDS) or any(p in lower for p in self._LINKING_PHRASES)
 
     def _has_url(self, message: str) -> bool:
         return bool(self._URL_RE.search(message))
@@ -1095,7 +1090,9 @@ The user is looking for specific information from their knowledge base.
 
         if name == "search_canvas_nodes":
             query = inputs.get("query", "")
-            nodes = self.vector_service.search_nodes(query, limit=5)
+            nodes = self.vector_service.search_nodes(
+                query, limit=5, filter={"user_id": self._current_user_id or ""}
+            )
             node_ids = {n["id"] for n in nodes}
             db_session = self.db.get_session()
             try:
@@ -1225,7 +1222,9 @@ The user is looking for specific information from their knowledge base.
 
         if name == "focus_canvas_node":
             query = inputs.get("query", "")
-            nodes = self.vector_service.search_nodes(query, limit=5)
+            nodes = self.vector_service.search_nodes(
+                query, limit=5, filter={"user_id": self._current_user_id or ""}
+            )
             node_ids = {n["id"] for n in nodes}
             db_session = self.db.get_session()
             try:
@@ -1294,18 +1293,43 @@ The user is looking for specific information from their knowledge base.
                 logger.error("ingest_url_tool_error", url=url, error=str(e))
                 return {"error": f"Failed to start ingestion: {e}"}
 
-            # Schedule the AI summarization pass (title/summary/key_points/tags)
-            # right here, at node-creation time -- not deferred until after this
-            # whole chat response finishes (the old behavior, in chat.py's
-            # send_message route). Deferring it meant any failure later in the
-            # same request (e.g. persisting the assistant reply) left the node
-            # stuck forever with only a placeholder title and raw extracted
+            # Schedule extraction + the AI summarization pass (title/summary/
+            # key_points/tags) right here, at node-creation time -- not deferred
+            # until after this whole chat response finishes (the old behavior, in
+            # chat.py's send_message route). Deferring it meant any failure later
+            # in the same request (e.g. persisting the assistant reply) left the
+            # node stuck forever with only a placeholder title and raw extracted
             # content -- no summary, no key points, since that scheduling code
             # was never reached.
-            if self.graph_service:
-                threading.Thread(
-                    target=self.graph_service.process_node, args=(node.id,), daemon=True
-                ).start()
+            def _safe_process(node_id: str, node_url: str, node_type: str):
+                try:
+                    if node_type in DEFERRED_EXTRACTION_TYPES:
+                        # ingest_url() returned a fast placeholder for these types
+                        # without extracting content -- do that here, off the chat
+                        # response path, matching ingest.py's _safe_process (the
+                        # URL-bar route). Without this call, tweet/webpage/tiktok/
+                        # instagram URLs pasted into chat stayed at
+                        # status="processing" with blank content forever, since
+                        # extract_deferred() was never invoked from this path.
+                        ok = self.ingestion_service.extract_deferred(node_id, node_url, node_type)
+                        if not ok:
+                            return  # already marked status="error" with a message
+                    if self.graph_service:
+                        self.graph_service.process_node(node_id)
+                except Exception as e:
+                    logger.error("chat_ingest_process_failed", node_id=node_id, error=str(e))
+                    try:
+                        with self.db.session_scope() as s:
+                            n = s.query(NodeDB).filter_by(id=node_id).first()
+                            if n and n.status != "done":
+                                n.status = "error"
+                                n.error_message = f"Processing failed: {e}"
+                    except Exception as inner:
+                        logger.error("chat_ingest_status_update_failed", node_id=node_id, error=str(inner))
+
+            threading.Thread(
+                target=_safe_process, args=(node.id, node.url, node.type), daemon=True
+            ).start()
 
             actions.append({
                 "type": "ingest_started",

@@ -1077,6 +1077,14 @@ body {
     padding: 6px 0;
 }
 
+/* A degraded-but-successful result (e.g. TikTok caption-only when transcription
+   is bot-blocked) — informational, not an error. */
+.card-notice {
+    color: var(--text-tertiary);
+    font-size: 12px;
+    padding: 4px 0;
+}
+
 /* ==================== SPINNER ==================== */
 
 .spinner-small {

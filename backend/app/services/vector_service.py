@@ -213,7 +213,12 @@ class VectorService:
             logger.error("node_add_error", node_id=node_id, error=str(e))
             raise
 
-    def search_nodes(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def search_nodes(
+        self,
+        query: str,
+        limit: int = 5,
+        filter: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
         """Search canvas nodes semantically"""
         try:
             count = self.nodes_collection.count()
@@ -221,7 +226,8 @@ class VectorService:
                 return []
             results = self.nodes_collection.query(
                 query_texts=[query],
-                n_results=min(limit, count)
+                n_results=min(limit, count),
+                where=filter if filter else None
             )
             formatted = []
             if results and results['ids'] and len(results['ids'][0]) > 0:
@@ -251,13 +257,19 @@ class VectorService:
         query: str,
         context_limit: int = 5,
         document_limit: int = 3,
-        node_limit: int = 5
+        node_limit: int = 5,
+        node_filter: Optional[Dict[str, Any]] = None
     ) -> Dict[str, List[Dict[str, Any]]]:
-        """Search contexts, documents, and graph nodes"""
+        """Search contexts, documents, and graph nodes.
+
+        node_filter scopes the nodes query to a single user (e.g. {"user_id": ...}) —
+        contexts/documents don't carry user_id in their Chroma metadata today, so
+        there's nothing to filter there; callers still re-verify node ownership
+        against SQL afterward regardless (see engine.py's _retrieve_knowledge)."""
         return {
             'contexts': self.search_contexts(query, limit=context_limit),
             'documents': self.search_documents(query, limit=document_limit),
-            'nodes': self.search_nodes(query, limit=node_limit)
+            'nodes': self.search_nodes(query, limit=node_limit, filter=node_filter)
         }
 
     # ==================== STATS & MANAGEMENT ====================

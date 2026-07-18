@@ -728,11 +728,19 @@ function buildCardHTML(node) {
             ? `<div class="card-unavailable">Requires an X login to read — ask your admin to configure this</div>`
             : `<div class="card-error">⚠ Processing failed</div>`;
     } else {
+        // TikTok's audio→transcript path can be bot-blocked; when that happens
+        // ingestion_service.py degrades to a title/author-only oEmbed result
+        // rather than a hard error (see transcript_unavailable in metadata) —
+        // flag it so this doesn't read as a full transcript that's just short.
+        const transcriptUnavailable = node.metadata && node.metadata.transcript_unavailable;
+        const notice = transcriptUnavailable
+            ? `<div class="card-notice">⚠ Transcript unavailable — showing caption only</div>`
+            : '';
         const summary = node.summary ? `<p class="card-summary">${escapeHtml(node.summary)}</p>` : '';
         const tags = (node.tags || []).slice(0, 4).map(t =>
             `<span class="card-tag">${escapeHtml(t)}</span>`
         ).join('');
-        bodyHTML = summary + (tags ? `<div class="card-tags">${tags}</div>` : '');
+        bodyHTML = notice + summary + (tags ? `<div class="card-tags">${tags}</div>` : '');
     }
 
     return `

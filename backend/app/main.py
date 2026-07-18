@@ -1122,6 +1122,7 @@ async def startup_event():
     # to avoid OOM at startup (ChromaDB downloads 79MB ONNX model on first use)
     import threading
     threading.Thread(target=_reindex_missing_nodes, daemon=True).start()
+    threading.Thread(target=_backfill_node_user_ids, daemon=True).start()
     threading.Thread(target=_process_pending_nodes, daemon=True).start()
     threading.Thread(target=_watchdog_stuck_nodes, daemon=True).start()
 
@@ -1262,6 +1263,54 @@ def _migrate_backfill_tier_from_stripe():
         logger.error("backfill_tier_from_stripe_failed", error=str(e))
 
 
+def _backfill_node_user_ids():
+    """One-time migration: patch user_id into Chroma node metadata for nodes indexed
+    before search_nodes() gained per-user filtering. Without this, every pre-existing
+    node fails the new {"user_id": ...} filter and search/highlight silently return
+    nothing for a user's whole canvas. Metadata-only update — no re-embedding needed."""
+    from .db.database import NodeDB
+    try:
+        existing = engine.vector_service.nodes_collection.get(include=["metadatas"])
+    except Exception as e:
+        logger.error("node_user_id_backfill_read_failed", error=str(e))
+        return
+
+    ids = existing.get("ids") or []
+    metadatas = existing.get("metadatas") or []
+    stale = [
+        (node_id, meta) for node_id, meta in zip(ids, metadatas)
+        if not (meta or {}).get("user_id")
+    ]
+    if not stale:
+        return
+
+    sql_session = engine.db.get_session()
+    try:
+        node_rows = {
+            n.id: n.user_id
+            for n in sql_session.query(NodeDB).filter(NodeDB.id.in_([nid for nid, _ in stale])).all()
+        }
+    finally:
+        sql_session.close()
+
+    patch_ids, patch_metadatas = [], []
+    for node_id, meta in stale:
+        user_id = node_rows.get(node_id)
+        if not user_id:
+            continue
+        patched = dict(meta or {})
+        patched["user_id"] = user_id
+        patch_ids.append(node_id)
+        patch_metadatas.append(patched)
+
+    if patch_ids:
+        try:
+            engine.vector_service.nodes_collection.update(ids=patch_ids, metadatas=patch_metadatas)
+            logger.info("node_user_id_backfill_complete", patched=len(patch_ids))
+        except Exception as e:
+            logger.error("node_user_id_backfill_write_failed", error=str(e))
+
+
 def _reindex_missing_nodes():
     """Index nodes that are in SQLite (status=done) but missing from ChromaDB."""
     from .db.database import NodeDB
@@ -1303,6 +1352,7 @@ def _reindex_missing_nodes():
                         "type": node.type,
                         "url": node.url or "",
                         "tags": ", ".join(node.tags or []),
+                        "user_id": node.user_id or "",
                     }
                 )
                 indexed += 1
