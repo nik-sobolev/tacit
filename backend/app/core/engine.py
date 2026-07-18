@@ -208,9 +208,12 @@ class TacitEngine:
         # Build enhanced prompt with knowledge
         system_prompt = self._build_prompt(mode, knowledge)
 
-        # People tools always on; canvas tools only when linking intent detected
-        enable_canvas_tools = self._has_linking_intent(user_message)
-        enable_ingest_tool = True  # URL + note tools always available; Claude decides when to call each
+        # All tool categories always available; Claude decides when to call each
+        # (previously canvas tools were gated per-message on a linking-intent keyword
+        # check, which caused the model to see a different tool list turn-to-turn and
+        # incorrectly deny having canvas capabilities when the gate was closed)
+        enable_canvas_tools = True
+        enable_ingest_tool = True
 
         # Stash user_id so chaos_canvas tool can scope to the right user
         self._current_user_id = user_id
@@ -831,22 +834,9 @@ The user is looking for specific information from their knowledge base.
         }
     ]
 
-    # ==================== LINKING INTENT ====================
-
-    _LINKING_KEYWORDS = {
-        "link", "connect", "relate", "associate", "tie", "attach",
-        "unlink", "disconnect", "detach", "remove", "delete",
-        "find", "locate", "open", "highlight", "focus",
-    }
-
-    _LINKING_PHRASES = ("take me to", "pull up", "where is", "where's")
+    # ==================== URL DETECTION ====================
 
     _URL_RE = re.compile(r'https?://\S+', re.IGNORECASE)
-
-    def _has_linking_intent(self, message: str) -> bool:
-        lower = message.lower()
-        words = set(lower.split())
-        return bool(words & self._LINKING_KEYWORDS) or any(p in lower for p in self._LINKING_PHRASES)
 
     def _has_url(self, message: str) -> bool:
         return bool(self._URL_RE.search(message))
