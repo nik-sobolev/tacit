@@ -173,8 +173,24 @@ body {
 
 .header-actions {
     display: flex;
-    gap: 4px;
+    align-items: center;
+    gap: 10px;
     flex-shrink: 0;
+}
+
+.tool-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    background: rgba(236,230,214,0.04);
+    border: 1px solid var(--tacit-hairline);
+    border-radius: 10px;
+    padding: 3px;
+}
+
+.tool-group .icon-btn {
+    border: none;
+    border-radius: 8px;
 }
 
 .header-search-bar {
@@ -238,13 +254,27 @@ body {
 
 #toggleCategoryBtn { width: auto; padding: 0 10px; font-size: 12px; font-weight: 500; }
 
+.user-avatar-btn {
+    border: none;
+    border-radius: 50%;
+    background: var(--tacit-copper);
+    color: var(--tacit-ink);
+    font-weight: 700;
+}
+
+.user-avatar-btn:hover {
+    background: var(--tacit-copper-bright);
+    color: var(--tacit-ink);
+}
+
 .usage-meter {
     font-family: var(--font-mono);
     font-size: 11px;
     color: var(--tacit-muted);
     padding: 4px 10px;
+    background: rgba(236,230,214,0.04);
     border: 1px solid var(--tacit-hairline);
-    border-radius: 2px;
+    border-radius: 999px;
     white-space: nowrap;
     cursor: pointer;
     transition: border-color 0.15s, color 0.15s;

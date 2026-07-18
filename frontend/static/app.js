@@ -119,12 +119,11 @@ function addUserMenuToHeader(clerk) {
 
     // User avatar button
     const userBtn = document.createElement('button');
-    userBtn.className = 'icon-btn';
+    userBtn.className = 'icon-btn user-avatar-btn';
     userBtn.title = fullName;
     userBtn.textContent = (firstName || fullName || '?')[0].toUpperCase();
-    userBtn.style.fontWeight = '700';
     userBtn.addEventListener('click', () => clerk.openUserProfile());
-    actions.insertBefore(userBtn, actions.firstChild);
+    actions.appendChild(userBtn);
 
     // Mobile profile icon — personalize with user initial
     const mobileIcon = document.getElementById('mobileProfileIcon');
