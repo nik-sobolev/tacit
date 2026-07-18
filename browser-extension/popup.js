@@ -48,6 +48,15 @@ function isRestrictedUrl(url) {
     /^https:\/\/chromewebstore\.google\.com/.test(url);
 }
 
+// Saving Tacit's own app tab captures its whole rendered canvas (every card's
+// title/summary/tags concatenated together) as "page content" instead of a
+// real article — that garbled, multi-topic blob is dense enough to blow past
+// the summarizer's output-token budget, truncate mid-JSON, and land the node
+// on status="error" with a cryptic JSON-parse message. Block it here instead.
+function isTacitAppUrl(url) {
+  return /^https:\/\/(www\.)?trytacit\.app(\/|$)/.test(url);
+}
+
 saveBtn.addEventListener('click', async () => {
   const token = await getToken();
   if (!token) return;
@@ -58,6 +67,11 @@ saveBtn.addEventListener('click', async () => {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab || !tab.id) throw new Error('No active tab');
+    if (isTacitAppUrl(tab.url || '')) {
+      setStatus("That's Tacit itself — switch to the page you want to save.", 'error');
+      saveBtn.disabled = false;
+      return;
+    }
     if (isRestrictedUrl(tab.url || '')) {
       setStatus("Can't save this page — try it on a regular webpage.", 'error');
       saveBtn.disabled = false;
