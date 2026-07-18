@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Save to Tacit",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Clip any page to your Tacit account in one click — even pages that need you to be logged in to view.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["https://www.trytacit.app/*"],
