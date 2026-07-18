@@ -11,6 +11,7 @@ from anthropic import Anthropic, APIStatusError
 
 from .config import TacitConfig
 from ..services.vector_service import VectorService
+from ..services.ingestion_service import DEFERRED_EXTRACTION_TYPES
 from ..models.chat import ChatMode
 from ..db.database import get_database, ConversationDB, MessageDB, NodeDB, EdgeDB, PersonDB, ContextDB, DocumentDB, filter_owned_ids
 
@@ -1288,18 +1289,43 @@ The user is looking for specific information from their knowledge base.
                 logger.error("ingest_url_tool_error", url=url, error=str(e))
                 return {"error": f"Failed to start ingestion: {e}"}
 
-            # Schedule the AI summarization pass (title/summary/key_points/tags)
-            # right here, at node-creation time -- not deferred until after this
-            # whole chat response finishes (the old behavior, in chat.py's
-            # send_message route). Deferring it meant any failure later in the
-            # same request (e.g. persisting the assistant reply) left the node
-            # stuck forever with only a placeholder title and raw extracted
+            # Schedule extraction + the AI summarization pass (title/summary/
+            # key_points/tags) right here, at node-creation time -- not deferred
+            # until after this whole chat response finishes (the old behavior, in
+            # chat.py's send_message route). Deferring it meant any failure later
+            # in the same request (e.g. persisting the assistant reply) left the
+            # node stuck forever with only a placeholder title and raw extracted
             # content -- no summary, no key points, since that scheduling code
             # was never reached.
-            if self.graph_service:
-                threading.Thread(
-                    target=self.graph_service.process_node, args=(node.id,), daemon=True
-                ).start()
+            def _safe_process(node_id: str, node_url: str, node_type: str):
+                try:
+                    if node_type in DEFERRED_EXTRACTION_TYPES:
+                        # ingest_url() returned a fast placeholder for these types
+                        # without extracting content -- do that here, off the chat
+                        # response path, matching ingest.py's _safe_process (the
+                        # URL-bar route). Without this call, tweet/webpage/tiktok/
+                        # instagram URLs pasted into chat stayed at
+                        # status="processing" with blank content forever, since
+                        # extract_deferred() was never invoked from this path.
+                        ok = self.ingestion_service.extract_deferred(node_id, node_url, node_type)
+                        if not ok:
+                            return  # already marked status="error" with a message
+                    if self.graph_service:
+                        self.graph_service.process_node(node_id)
+                except Exception as e:
+                    logger.error("chat_ingest_process_failed", node_id=node_id, error=str(e))
+                    try:
+                        with self.db.session_scope() as s:
+                            n = s.query(NodeDB).filter_by(id=node_id).first()
+                            if n and n.status != "done":
+                                n.status = "error"
+                                n.error_message = f"Processing failed: {e}"
+                    except Exception as inner:
+                        logger.error("chat_ingest_status_update_failed", node_id=node_id, error=str(inner))
+
+            threading.Thread(
+                target=_safe_process, args=(node.id, node.url, node.type), daemon=True
+            ).start()
 
             actions.append({
                 "type": "ingest_started",
