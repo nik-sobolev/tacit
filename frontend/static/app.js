@@ -1409,7 +1409,7 @@ function _buildTranscriptText(node) {
     if (keyPoints.length) {
         out += 'Key Points:\n' + keyPoints.map(p => '• ' + p).join('\n') + '\n\n';
     }
-    out += '\n— Transcribed with Tacit → https://www.trytacit.app';
+    out += '\n— Transcribed with Tacit → ' + buildPublicShareUrl(node);
     return out.trim();
 }
 
@@ -1438,7 +1438,7 @@ function _buildTranscriptMd(node) {
             return `${link} ${seg.text}`;
         }).join('\n\n');
     }
-    md += '\n\n---\n*Transcribed with [Tacit](https://www.trytacit.app)*';
+    md += `\n\n---\n*Transcribed with [Tacit](${buildPublicShareUrl(node)})*`;
     return md.trim();
 }
 
