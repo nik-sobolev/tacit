@@ -2,6 +2,17 @@
 
 All notable changes to Tacit are documented here.
 
+## [1.0.0.1] - 2026-07-22
+
+### Fixed
+- X Articles shared via a `/status/{id}` link (not the canonical
+  `/i/article/{id}` shape) were misreported as deleted tweets. The Tweet
+  GraphQL API returns the same "not found" shape for a genuinely deleted
+  tweet and for an Article (Articles aren't Tweet objects), so that
+  verdict alone is no longer trusted — the page is rendered directly
+  before concluding a post is gone, and an anonymous "not found" now
+  retries with the configured X session before giving up.
+
 ## [1.0.0.0] - 2026-07-18
 
 First tracked version. Tacit has been in production at trytacit.app without

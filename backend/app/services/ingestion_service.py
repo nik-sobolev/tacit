@@ -819,9 +819,24 @@ class IngestionService:
 
         primary = self._extract_tweet_graphql(url)
         if primary.get("not_found"):
-            # Authoritative — X's own API has no record of this tweet at all, so
-            # there's nothing for oEmbed/video/Playwright to find either. Fail
-            # immediately with a marked message instead of burning more requests.
+            # NOT authoritative on its own — the Tweet GraphQL API returns the
+            # same "no user object" shape for a genuinely deleted tweet AND for
+            # an X Article shared via a /status/{id} URL (Articles aren't Tweet
+            # objects at all, so the lookup fails the same way regardless of
+            # auth). Confirmed live: x.com/Av1dlive/status/207960774396994789
+            # is a real, popular Article that GraphQL reports as not_found.
+            # Render the page directly before concluding it's gone — reuses
+            # _extract_x_article's rendering + error/login-wall detection even
+            # though this URL isn't the /i/article/ shape, since that function
+            # only cares about what's actually on the page.
+            try:
+                return self._extract_x_article(url)
+            except ValueError as e:
+                if str(e).startswith((self.TWEET_NOT_FOUND_MARKER, self.X_LOGIN_REQUIRED_MARKER)):
+                    raise
+                # Rendering failed for some other reason (disabled via env var,
+                # insufficient content, etc.) — fall through to the original
+                # not_found verdict rather than masking it with a less useful error.
             raise ValueError(f"{self.TWEET_NOT_FOUND_MARKER} This post is no longer available on X ({url})")
 
         text_source = primary if primary.get("text") else self._extract_tweet_oembed(url)
@@ -1003,8 +1018,16 @@ class IngestionService:
         # "Could not authenticate you", which is worse than not authenticating
         # at all. Configuring cookies must never be able to break what already
         # worked without them.
+        #
+        # An anonymous "not_found" is NOT treated as usable here (unlike a real
+        # text result) — X's Tweet API returns no `user` object for X Article
+        # content when queried anonymously even though the content is real and
+        # viewable when signed in (confirmed live: x.com/Av1dlive/status/... is
+        # a real, popular Article that anonymous GraphQL reports as not_found).
+        # Trusting that would misreport live content as deleted. So an
+        # anonymous not_found still falls through to the cookie retry below.
         result = self._try_tweet_graphql(tweet_id, url, use_cookies=False)
-        if result.get("text") or result.get("not_found"):
+        if result.get("text"):
             return result
 
         if self._x_cookies_opts().get("cookiefile"):
