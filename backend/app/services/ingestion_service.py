@@ -54,6 +54,25 @@ def detect_url_type(url: str) -> str:
 # chain — either can run past a synchronous request's timeout budget.
 DEFERRED_EXTRACTION_TYPES = {"tweet", "webpage", "tiktok", "instagram"}
 
+# Minimum length for a page/article scrape to count as "real content" rather
+# than a boilerplate fragment. Confirmed live: a prior 20-char bar let short
+# X error/"unavailable" copy sail through as a "successful" extraction — the
+# LLM then dutifully summarized that emptiness as if it were the actual
+# tweet/article, producing a node that looked done but said nothing (we don't
+# have the exact raw string X returned, only the LLM's output describing it).
+# 150 chars is short even for a single real tweet or article intro paragraph,
+# but long enough that generic "not found"/"unavailable"/login-wall
+# boilerplate can't accidentally clear it.
+MIN_REAL_CONTENT_CHARS = 150
+
+
+def is_real_content(text: Optional[str]) -> bool:
+    """True if text is substantial enough to be genuine scraped content, not
+    a short error/boilerplate fragment. Use this instead of an inline
+    len(text.strip()) check anywhere a result is about to be accepted as a
+    successful extraction."""
+    return bool(text) and len(text.strip()) >= MIN_REAL_CONTENT_CHARS
+
 
 class IngestionService:
     """Handles URL ingestion: extraction, transcription, and node creation."""
@@ -893,8 +912,17 @@ class IngestionService:
                 is_x_error_page = any(marker in page_text for marker in (
                     "Post Not Found", "This page doesn’t exist", "This page doesn't exist",
                     "We're unable to show this content", "content may be private, deleted",
+                    "isn't available", "isn’t available", "Content Unavailable", "Invalid URL",
                 ))
-                if page.get("content") and len(page["content"].strip()) >= 20 and not is_x_error_page:
+                # Real tweets can be legitimately short (even single-word), so this can't
+                # use the same ~150-char bar as full articles — but the same failure mode
+                # confirmed on the X Article path applies here too: a bare `>= 20` check
+                # let short boilerplate ("unavailable"-style copy) through as if it were
+                # real. 40 chars still allows genuine short tweets while meaningfully
+                # raising the bar above stock error phrasing.
+                MIN_TWEET_FALLBACK_CHARS = 40
+                has_real_text = bool(page.get("content")) and len(page["content"].strip()) >= MIN_TWEET_FALLBACK_CHARS
+                if has_real_text and not is_x_error_page:
                     page["metadata"] = {
                         **page.get("metadata", {}),
                         "provider": "playwright_fallback",
@@ -1173,6 +1201,7 @@ class IngestionService:
         is_x_error_page = any(marker in page_text for marker in (
             "Post Not Found", "This page doesn’t exist", "This page doesn't exist",
             "We're unable to show this content", "content may be private, deleted",
+            "isn't available", "isn’t available", "Content Unavailable", "Invalid URL",
         ))
         if is_x_error_page:
             # Same marker as a deleted tweet — same honest, calm frontend
@@ -1201,7 +1230,7 @@ class IngestionService:
                 f"{self.X_LOGIN_REQUIRED_MARKER} X requires a signed-in session to view Articles — {guidance} ({url})"
             )
 
-        if not page.get("content") or len(page["content"].strip()) < 20:
+        if not is_real_content(page.get("content")):
             raise ValueError(f"Could not extract article content from {url}")
 
         page["metadata"] = {**page.get("metadata", {}), "provider": "x_article", "article_url": url}
