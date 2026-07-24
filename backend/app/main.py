@@ -1034,8 +1034,10 @@ async def debug_tweet(url: str):
     """
     import os, asyncio, traceback
     _webshare = bool(os.getenv("WEBSHARE_PROXY_USERNAME", "").strip() and os.getenv("WEBSHARE_PROXY_PASSWORD", "").strip())
+    _account_health = ingestion_service._x_cookie_health_all()
     results = {
-        "cookies_present": bool(os.getenv("X_COOKIES_B64")),
+        "cookies_present": bool(_account_health),
+        "x_account_health": _account_health,
         "proxy_mode": "webshare" if _webshare else ("generic" if os.getenv("YOUTUBE_PROXY_URL", "").strip() else "none"),
     }
 
@@ -1103,8 +1105,8 @@ async def startup_event():
     # Diagnostic only — never blocks startup, X Articles are one content type
     # among many.
     try:
-        x_cookie_status = ingestion_service._x_cookie_health()
-        logger.info("x_cookie_health", status=x_cookie_status)
+        x_cookie_status = ingestion_service._x_cookie_health_all()
+        logger.info("x_cookie_health", accounts=x_cookie_status or {"X_COOKIES_B64": "not_configured"})
     except Exception as e:
         logger.warning("x_cookie_health_check_failed", error=str(e))
 

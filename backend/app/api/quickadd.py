@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from ..core.auth import get_current_user
 from ..db.database import get_database, UserQuickTokenDB, NodeDB
-from ..services.ingestion_service import detect_url_type, DEFERRED_EXTRACTION_TYPES
+from ..services.ingestion_service import detect_url_type, DEFERRED_EXTRACTION_TYPES, DEFERRED_EXTRACTION_EXECUTOR
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -129,7 +129,7 @@ async def quick_add(request: Request, token: str, url: str = None):
         except Exception as e:
             logger.error("quickadd_process_failed", node_id=node_id, error=str(e))
 
-    loop.run_in_executor(None, _process, node.id)
+    loop.run_in_executor(DEFERRED_EXTRACTION_EXECUTOR, _process, node.id)
 
     logger.info("quickadd_success", user_id=user_id, url=url)
     return {"status": "queued", "node_id": node.id}
