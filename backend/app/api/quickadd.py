@@ -190,6 +190,16 @@ async def quick_add_html(request: Request, body: QuickAddHtmlRequest):
         None, lambda: ingestion_service.extract_from_html(body.url, body.html, body.title)
     )
 
+    # extract_from_html() never raises — a page that yields nothing (captured
+    # mid-load, a login/interstitial wall, an unsupported layout) just comes
+    # back with content="". Left unchecked, that used to reach process_node()
+    # and get "summarized" by the LLM as if the emptiness were the actual
+    # content — see graph_service.process_node()'s empty-content guard, which
+    # is the backstop; this is the same check applied at the source so the
+    # node is created honestly-failed from the start instead of a transient
+    # "processing" card that flips to error moments later.
+    extraction_failed = not (data.get("content") or "").strip()
+
     node_id = str(uuid.uuid4())
     with db.session_scope() as session:
         session.add(NodeDB(
@@ -202,13 +212,15 @@ async def quick_add_html(request: Request, body: QuickAddHtmlRequest):
             thumbnail_url=data.get("thumbnail_url"),
             canvas_x=100.0,
             canvas_y=100.0,
-            status="processing",
+            status="error" if extraction_failed else "processing",
+            error_message="Could not extract any content from this page" if extraction_failed else None,
             tags=[],
             node_meta=data.get("metadata", {}),
             created_at=datetime.utcnow(),
         ))
 
-    loop.run_in_executor(None, graph_service.process_node, node_id)
+    if not extraction_failed:
+        loop.run_in_executor(None, graph_service.process_node, node_id)
 
-    logger.info("quickadd_html_success", user_id=user_id, url=body.url, type=content_type)
-    return {"status": "queued", "node_id": node_id}
+    logger.info("quickadd_html_success", user_id=user_id, url=body.url, type=content_type, extraction_failed=extraction_failed)
+    return {"status": "error" if extraction_failed else "queued", "node_id": node_id}

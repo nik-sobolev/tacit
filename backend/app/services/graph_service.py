@@ -54,6 +54,28 @@ class GraphService:
                     logger.info("process_node_skip_errored_node", node_id=node_id)
                     return
 
+                if not (node.content or "").strip():
+                    # Every real extraction path should have either raised (caught by
+                    # extract_deferred, which marks status="error" before this ever
+                    # runs) or produced actual text. A node reaching here with empty
+                    # content means some path let a blank/failed extraction through
+                    # silently. Calling the LLM anyway is the bug that produced fake
+                    # "Content Unavailable"/"could not be retrieved" cards — the model
+                    # faithfully describes the empty prompt as if it were the subject,
+                    # and that description gets saved as a real summary. Fail honestly
+                    # and let the existing retry-on-resave path (ingest.py, app.js)
+                    # pick it up instead.
+                    logger.warning("process_node_empty_content", node_id=node_id, node_type=node.type)
+
+                    def _mark_failed(s):
+                        n = s.query(NodeDB).filter_by(id=node_id).first()
+                        if n and n.status != "done":
+                            n.status = "error"
+                            n.error_message = "Extraction produced no content to summarize"
+
+                    self.db.run_with_retry(_mark_failed)
+                    return
+
                 # Get existing nodes for context (before adding this one to vector DB).
                 # Scoped to this user's nodes at the query level, but still re-verified
                 # in SQL below — legacy nodes indexed before user_id was added to Chroma
