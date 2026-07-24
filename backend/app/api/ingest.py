@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from ..db.database import get_database, NodeDB
 from ..core.auth import get_current_user
 from ..core.entitlements import check_and_reserve, record_action
-from ..services.ingestion_service import DEFERRED_EXTRACTION_TYPES
+from ..services.ingestion_service import DEFERRED_EXTRACTION_TYPES, DEFERRED_EXTRACTION_EXECUTOR
 
 # process_node() runs in a background thread with no persistence or resume —
 # a server restart (e.g. a deploy) mid-processing orphans the node forever at
@@ -121,7 +121,7 @@ async def ingest_url(request: Request, body: IngestRequest, current_user: dict =
         # only the downstream AI enrichment is skipped if the user is capped.
         try:
             check_and_reserve(user_id, "synthesis")
-            loop.run_in_executor(None, _safe_process, node.id)
+            loop.run_in_executor(DEFERRED_EXTRACTION_EXECUTOR, _safe_process, node.id)
         except HTTPException:
             with db.session_scope() as s:
                 n = s.query(NodeDB).filter_by(id=node.id).first()

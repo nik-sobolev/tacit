@@ -6,6 +6,7 @@ import uuid
 import tempfile
 import threading
 import structlog
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, Optional
 from datetime import datetime
 from urllib.parse import urlparse
@@ -25,6 +26,19 @@ logger = structlog.get_logger()
 # default. One process-wide semaphore, not per-instance, since IngestionService
 # itself isn't a singleton but the underlying resource risk (host memory) is.
 _PLAYWRIGHT_LAUNCH_SEMAPHORE = threading.Semaphore(1)
+
+# Separate from Python's default asyncio executor (used for everything else --
+# quick ingests, chat's process_node LLM calls, migrate, quickadd). Deferred
+# extraction (tweet/webpage/tiktok/instagram) can invoke Playwright, which
+# takes up to ~35-40s per attempt even before _PLAYWRIGHT_LAUNCH_SEMAPHORE
+# (still capped at 1 concurrent browser above) makes it queue further. Without
+# its own pool, a handful of slow tweet renders could occupy every thread in
+# the shared default pool, delaying unrelated fast background work (other
+# ingests, chat replies) that has nothing to do with Playwright. max_workers=4
+# gives headroom for a few extractions' non-Playwright work (GraphQL/oEmbed
+# calls) to run concurrently while the browser semaphore still serializes the
+# one part that's actually memory-expensive.
+DEFERRED_EXTRACTION_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="deferred-extract")
 
 
 def detect_url_type(url: str) -> str:
@@ -655,32 +669,63 @@ class IngestionService:
             logger.warning("tiktok_cookie_load_failed", error=str(e))
             return {}
 
-    def _x_cookies_opts(self) -> dict:
-        """Return cookiefile option if X_COOKIES_B64 env var is set (Netscape format)."""
-        import base64
-        cookies_b64 = os.getenv("X_COOKIES_B64", "")
-        if not cookies_b64:
-            return {}
-        try:
-            cookie_path = os.path.join(tempfile.gettempdir(), "x_cookies.txt")
-            with open(cookie_path, "wb") as f:
-                f.write(base64.b64decode(cookies_b64))
-            return {"cookiefile": cookie_path}
-        except Exception as e:
-            logger.warning("x_cookie_load_failed", error=str(e))
-            return {}
+    # Env var names checked by _x_cookie_accounts(), in try-order. X_COOKIES_B64
+    # is the original single-account name (unchanged, still the primary/first
+    # account); _2.._5 are optional additional dedicated accounts for fallback
+    # when the primary gets logged out remotely (see docs/x-cookies-setup.md).
+    X_COOKIE_ENV_NAMES = ["X_COOKIES_B64"] + [f"X_COOKIES_B64_{i}" for i in range(2, 6)]
 
-    def _x_cookie_health(self) -> str:
-        """Diagnose X_COOKIES_B64's actual usability, not just whether it's set.
-        Session cookies expire — without this, a future stale-cookie failure
-        would look identical to "never configured" and require re-deriving the
-        whole diagnosis from scratch (see docs/x-cookies-setup.md for why this
-        matters). Best-effort, never raises; not_configured/missing_auth_cookie
-        aren't the same failure and get different guidance downstream.
+    def _x_cookie_accounts(self) -> list:
+        """Return a cookiefile opts dict for every configured X account, in
+        order. Each account gets its own tempfile so concurrent extractions
+        (or one extraction trying account 2 after account 1's login wall)
+        never read/write the same path.
+
+        A single logged-out session used to hard-fail every X Article until
+        someone noticed and re-exported cookies by hand. This lets
+        _extract_x_article() fall through to the next configured account
+        instead of failing on the first one that's gone stale."""
+        import base64
+        accounts = []
+        for i, env_name in enumerate(self.X_COOKIE_ENV_NAMES):
+            cookies_b64 = os.getenv(env_name, "")
+            if not cookies_b64:
+                continue
+            try:
+                cookie_path = os.path.join(tempfile.gettempdir(), f"x_cookies_{i}.txt")
+                with open(cookie_path, "wb") as f:
+                    f.write(base64.b64decode(cookies_b64))
+                accounts.append({"cookiefile": cookie_path, "env_name": env_name})
+            except Exception as e:
+                logger.warning("x_cookie_load_failed", env_name=env_name, error=str(e))
+        return accounts
+
+    def _x_cookies_opts(self) -> dict:
+        """Return cookiefile option for the primary (first configured) X
+        account. Callers that only ever use one account (yt-dlp paths) keep
+        working unchanged; _extract_x_article() uses _x_cookie_accounts()
+        directly to try all of them."""
+        accounts = self._x_cookie_accounts()
+        if not accounts:
+            return {}
+        return {"cookiefile": accounts[0]["cookiefile"]}
+
+    def _x_cookie_health(self, cookies_opts: dict = None) -> str:
+        """Diagnose one account's cookiefile usability, not just whether it's
+        set. Session cookies expire — without this, a future stale-cookie
+        failure would look identical to "never configured" and require
+        re-deriving the whole diagnosis from scratch (see
+        docs/x-cookies-setup.md for why this matters). Best-effort, never
+        raises; not_configured/missing_auth_cookie aren't the same failure
+        and get different guidance downstream.
+
+        cookies_opts defaults to the primary account for backward
+        compatibility; pass a specific account's opts (from
+        _x_cookie_accounts()) to check that one instead.
 
         Returns one of: "not_configured", "missing_auth_cookie", "expired", "ok".
         """
-        cookies_opts = self._x_cookies_opts()
+        cookies_opts = cookies_opts if cookies_opts is not None else self._x_cookies_opts()
         if not cookies_opts.get("cookiefile"):
             return "not_configured"
 
@@ -695,6 +740,17 @@ class IngestionService:
             return "expired"
 
         return "ok"
+
+    def _x_cookie_health_all(self) -> dict:
+        """Per-account health for every configured X account, e.g.
+        {"X_COOKIES_B64": "ok", "X_COOKIES_B64_2": "expired"}. Empty dict if
+        none are configured. Used by /api/debug/tweet and the X_LOGIN_REQUIRED
+        guidance message so a multi-account setup says *which* accounts are
+        down instead of one opaque status."""
+        return {
+            account["env_name"]: self._x_cookie_health(account)
+            for account in self._x_cookie_accounts()
+        }
 
     def _get_yt_dlp_retries(self) -> int:
         """Get number of retry attempts for yt-dlp operations from environment variable."""
@@ -1188,53 +1244,79 @@ class IngestionService:
         if os.getenv("X_ARTICLE_PLAYWRIGHT_FALLBACK", "true").lower() not in ("1", "true", "yes"):
             raise ValueError(f"X Article rendering is disabled ({url})")
 
-        # use_proxy=False: same reasoning as the tweet Playwright fallback —
-        # routing Playwright's browser through the residential proxy hangs at
-        # the Chromium level, not a simple HTTP request.
-        # cookies_opts: confirmed live that X shows an anonymous/headless visitor
-        # a "JavaScript is disabled" login-wall page for Articles specifically
-        # (unlike regular tweets, which are often viewable logged-out) — pass
-        # X_COOKIES_B64 (if configured) so this can render as a logged-in session.
-        page = self._extract_webpage_browser(url, use_proxy=False, cookies_opts=self._x_cookies_opts())
+        # Try every configured X account in turn — one account getting logged
+        # out remotely (a real, recurring failure — see docs/x-cookies-setup.md)
+        # used to hard-fail every Article until someone noticed and re-exported
+        # cookies by hand. accounts is empty if none are configured, in which
+        # case we still make one anonymous attempt (matches pre-multi-account
+        # behavior: X sometimes serves Articles logged-out, though rarely).
+        accounts = self._x_cookie_accounts()
+        attempts = accounts if accounts else [None]
 
-        page_text = (page.get("content") or "") + " " + (page.get("title") or "")
-        is_x_error_page = any(marker in page_text for marker in (
-            "Post Not Found", "This page doesn’t exist", "This page doesn't exist",
-            "We're unable to show this content", "content may be private, deleted",
-            "isn't available", "isn’t available", "Content Unavailable", "Invalid URL",
-        ))
-        if is_x_error_page:
-            # Same marker as a deleted tweet — same honest, calm frontend
-            # treatment applies (see TWEET_NOT_FOUND_MARKER, app.js's card render).
-            raise ValueError(f"{self.TWEET_NOT_FOUND_MARKER} This post is no longer available on X ({url})")
+        for account in attempts:
+            cookies_opts = account if account else {}
+            # use_proxy=False: same reasoning as the tweet Playwright fallback —
+            # routing Playwright's browser through the residential proxy hangs at
+            # the Chromium level, not a simple HTTP request.
+            # cookies_opts: confirmed live that X shows an anonymous/headless visitor
+            # a "JavaScript is disabled" login-wall page for Articles specifically
+            # (unlike regular tweets, which are often viewable logged-out) — pass
+            # a configured account's cookies (if any) so this can render as a
+            # logged-in session.
+            page = self._extract_webpage_browser(url, use_proxy=False, cookies_opts=cookies_opts)
 
-        # Confirmed live: an anonymous/headless visitor gets X's "JavaScript is
-        # disabled in this browser" notice plus a sign-in prompt instead of the
-        # actual article — this is content-shaped enough to slip past a bare
-        # length check, so it needs its own explicit detection rather than being
-        # silently accepted as a successful extraction.
-        is_login_wall = "JavaScript is disabled" in page_text or "Continue with phone" in page_text
-        if is_login_wall:
-            # Distinguish *why* — "never configured" and "configured but stale"
-            # look identical from the outside otherwise, and conflating them is
-            # exactly what made this failure mode confusing to diagnose the first
-            # time (see docs/x-cookies-setup.md).
-            health = self._x_cookie_health()
-            guidance = {
-                "not_configured": "set X_COOKIES_B64 to enable",
-                "missing_auth_cookie": "X_COOKIES_B64 is set but has no valid session in it — re-export while logged in",
-                "expired": "X_COOKIES_B64 is set but the session has expired — re-export and update it",
-                "ok": "X_COOKIES_B64 looks valid but X still rejected the session — it may have been logged out remotely",
-            }.get(health, "set X_COOKIES_B64 to enable")
-            raise ValueError(
-                f"{self.X_LOGIN_REQUIRED_MARKER} X requires a signed-in session to view Articles — {guidance} ({url})"
+            page_text = (page.get("content") or "") + " " + (page.get("title") or "")
+            is_x_error_page = any(marker in page_text for marker in (
+                "Post Not Found", "This page doesn’t exist", "This page doesn't exist",
+                "We're unable to show this content", "content may be private, deleted",
+                "isn't available", "isn’t available", "Content Unavailable", "Invalid URL",
+            ))
+            if is_x_error_page:
+                # The post is genuinely gone — true for every account, no point
+                # trying the rest. Same marker as a deleted tweet — same honest,
+                # calm frontend treatment applies (see TWEET_NOT_FOUND_MARKER,
+                # app.js's card render).
+                raise ValueError(f"{self.TWEET_NOT_FOUND_MARKER} This post is no longer available on X ({url})")
+
+            # Confirmed live: an anonymous/headless visitor gets X's "JavaScript is
+            # disabled in this browser" notice plus a sign-in prompt instead of the
+            # actual article — this is content-shaped enough to slip past a bare
+            # length check, so it needs its own explicit detection rather than being
+            # silently accepted as a successful extraction.
+            is_login_wall = "JavaScript is disabled" in page_text or "Continue with phone" in page_text
+            if is_login_wall:
+                continue  # try the next configured account, if any
+
+            if not is_real_content(page.get("content")):
+                raise ValueError(f"Could not extract article content from {url}")
+
+            page["metadata"] = {**page.get("metadata", {}), "provider": "x_article", "article_url": url}
+            return page
+
+        # Every account (or the single anonymous attempt) hit the login wall.
+        # Distinguish *why*, per account — "never configured" and "configured
+        # but stale" look identical from the outside otherwise, and conflating
+        # them is exactly what made this failure mode confusing to diagnose the
+        # first time (see docs/x-cookies-setup.md). With multiple accounts,
+        # name which ones are down instead of one opaque status.
+        guidance_by_status = {
+            "not_configured": "set X_COOKIES_B64 to enable",
+            "missing_auth_cookie": "has no valid session in it — re-export while logged in",
+            "expired": "session has expired — re-export and update it",
+            "ok": "looks valid but X still rejected the session — it may have been logged out remotely",
+        }
+        if accounts:
+            health_all = self._x_cookie_health_all()
+            per_account = "; ".join(
+                f"{env_name}: {guidance_by_status.get(status, status)}"
+                for env_name, status in health_all.items()
             )
-
-        if not is_real_content(page.get("content")):
-            raise ValueError(f"Could not extract article content from {url}")
-
-        page["metadata"] = {**page.get("metadata", {}), "provider": "x_article", "article_url": url}
-        return page
+            guidance = f"tried {len(accounts)} account(s), all rejected — {per_account}"
+        else:
+            guidance = guidance_by_status["not_configured"]
+        raise ValueError(
+            f"{self.X_LOGIN_REQUIRED_MARKER} X requires a signed-in session to view Articles — {guidance} ({url})"
+        )
 
     # ==================== SPOTIFY (PODCAST EPISODES) ====================
 

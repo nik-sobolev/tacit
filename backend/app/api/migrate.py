@@ -40,7 +40,7 @@ async def migrate(request: Request, body: MigrateRequest):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     from ..db.database import get_database, NodeDB, ContextDB
-    from ..services.ingestion_service import DEFERRED_EXTRACTION_TYPES
+    from ..services.ingestion_service import DEFERRED_EXTRACTION_TYPES, DEFERRED_EXTRACTION_EXECUTOR
 
     db = get_database()
     ingestion_service = request.app.state.ingestion_service
@@ -87,7 +87,7 @@ async def migrate(request: Request, body: MigrateRequest):
                 except Exception:
                     pass
 
-            loop.run_in_executor(None, _process, node.id)
+            loop.run_in_executor(DEFERRED_EXTRACTION_EXECUTOR, _process, node.id)
             queued_urls += 1
         except Exception as e:
             failed_urls.append({"url": url, "error": str(e)})
